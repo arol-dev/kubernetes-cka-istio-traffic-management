@@ -38,8 +38,8 @@ Las VMs consisten en:
 1. Clona el repositorio en tu entorno local:
 
    ```bash
-   git clone https://github.com/arol-dev/kubernetes-cka-backup-recovery-etcd.git
-   cd kubernetes-cka-backup-recovery-etcd
+   git clone https://github.com/arol-dev/kubernetes-cka-istio-traffic-management.git
+   cd kubernetes-cka-istio-traffic-management
    ```
 
 2. Dentro del repositorio, ejecuta el siguiente comando para desplegar las VMs:
@@ -72,40 +72,15 @@ Las VMs consisten en:
    - No se requiere un usuario específico, deja el campo vacío.
    - Si se te solicita usuario o contraseña, utiliza la cadena `vagrant`.
 
-## Paso 3: Desplegar la Aplicación BookInfo de Istio
+## Paso 3: Instalación de Istio
 
-1. Crea el namespace para BookInfo:
-   ```bash
-   kubectl create ns bookinfo
-   ```
-2. Despliega la aplicación:
-   ```bash
-   kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.23/samples/bookinfo/platform/kube/bookinfo.yaml -n bookinfo
-   ```
-
-3. Verifica que los pods se hayan desplegado correctamente en el namespace bookinfo.
-   ```bash
-   kubectl get pods -n bookinfo
-   ```
-
-4. Expone la aplicación localmente (opcional):
-   ```bash
-   kubectl port-forward svc/productpage 9080:9080 -n bookinfo
-   ```
-5. Prueba la aplicación desde el navegador (opcional):
-   - [http://127.0.0.1:9080/productpage](http://127.0.0.1:9080/productpage)
-
-6. Si la aplicación se ve lenta o incorrecta, reinicia el `coredns` (opcional):
-   ```bash
-   kubectl -n kube-system rollout restart deployment coredns
-   ```
-
-## Paso 4: Instalación de Istio
-
-1. **Descargar Istio y Actualizar PATH**
+1. **Descargar Istio**
     ```bash
     curl -L https://istio.io/downloadIstio | sh -
-    export PATH="$PATH:/home/vagrant/istio-1.23.3/bin"
+    ```
+2. **Actualizar PATH env**
+   ```bash
+    export PATH="$PATH:/home/vagrant/istio-1.24.0/bin"
     ```
 
 2. **Pre-check de la Instalación de Istio**
@@ -115,22 +90,76 @@ Las VMs consisten en:
 
 3. **Instalar Istio Usando el Perfil Demo**
     ```bash
+    cd istio-1.24.0 && \
     istioctl install -f samples/bookinfo/demo-profile-no-gateways.yaml -y
     ```
 
-## Paso 5: Habilitar Istio en el Clúster
+## Paso 4: Habilitar Istio en el Clúster
 
-1. **Habilitar la Inyección de Istio en el Namespace Default**
+1. **Habilitar la Inyección de Istio en el Namespace bookinfo**
     ```bash
-    kubectl label namespace default istio-injection=enabled
+    kubectl create ns bookinfo && \
+    kubectl label namespace bookinfo istio-injection=enabled
     ```
 
-## Paso 6: Instalar el API Gateway (Kubernetes)
+## Paso 6: Desplegar la Aplicación BookInfo de Istio
+
+1. Despliega la aplicación:
+   ```bash
+   kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.23/samples/bookinfo/platform/kube/bookinfo.yaml -n bookinfo
+   ```
+
+2. Verifica que los pods se hayan desplegado correctamente en el namespace bookinfo.
+   ```bash
+   kubectl get pods -n bookinfo
+   ```
+
+   Deberías ver que los pods muestran `READY 2/2`, lo que confirma que tienen su contenedor de aplicación y el contenedor *sidecar* de Istio.
+
+3. Error: Si solo ves un contenedor por pod, reinicia el `coredns` (opcional):
+   ```bash
+   kubectl -n kube-system rollout restart deployment coredns
+   ```
+
+## Paso 5: Instalar el API Gateway (Kubernetes)
+
+Los Kubernetes Gateway API CRDs (Custom Resource Definitions) son un conjunto de recursos personalizados que forman parte de la Gateway API en Kubernetes. Estos CRDs están diseñados para ofrecer un enfoque más flexible, extensible y controlado para gestionar el tráfico de red en Kubernetes, superando algunas de las limitaciones del recurso Ingress nativo. La Gateway API se enfoca en mejorar la administración de tráfico de entrada, como el enrutamiento, balanceo de carga, seguridad, y políticas de red avanzadas.
 
 1. **Instalar los CRDs del API Gateway**
-    ```bash
-    kubectl get crd gateways.gateway.networking.k8s.io &> /dev/null ||     { kubectl kustomize "github.com/kubernetes-sigs/gateway-api/config/crd?ref=v1.1.0" | kubectl apply -f -; }
-    ```
+
+   La aplicación Bookinfo está desplegada, pero no es accesible desde el exterior. Para hacerla accesible, necesitas crear un *ingress gateway*, que mapea una ruta a un destino en el borde de tu *mesh*.
+
+   ```bash
+   kubectl apply -f samples/bookinfo/gateway-api/bookinfo-gateway.yaml -n bookinfo
+   ```
+
+   Este comando instala un Gateway de Kubernetes y un recurso HTTPRoute. Ejecuta el comando `kubectl get <tiporecurso> <nombrerecurso> -o yaml -n bookinfo` para ver la definición YAML de estos nuevos componentes de Kubernetes.
+
+   Ejecuta el siguiente comando:
+
+   ```bash
+   kubectl get svc -n bookinfo
+   ```
+
+   Deberías ver que Istio crea un servicio **LoadBalancer** para un gateway. Como accederemos a este gateway mediante un túnel, no necesitamos un balanceador de carga. Cambiamos el tipo de servicio a ClusterIP añadiendo una anotación al gateway:
+
+   ```bash
+   kubectl annotate gateway bookinfo-gateway networking.istio.io/service-type=ClusterIP --namespace=bookinfo
+   ```
+
+## Verification appliacion
+
+1. Expone la aplicación localmente (opcional):
+   ```bash
+   kubectl port-forward svc/productpage 9080:9080 -n bookinfo
+   ```
+2. Prueba la aplicación desde el navegador (opcional):
+   - [http://127.0.0.1:9080/productpage](http://127.0.0.1:9080/productpage)
+
+3. Si la aplicación se ve lenta o incorrecta, reinicia el `coredns` (opcional):
+   ```bash
+   kubectl -n kube-system rollout restart deployment coredns
+   ```
 
 ## Paso 7: Traffic Management
 
