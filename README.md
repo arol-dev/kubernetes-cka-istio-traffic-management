@@ -339,7 +339,7 @@ for i in {1..6}; do curl -s "http://localhost:8080/productpage" | grep -o "revie
 
 Deberias ver solo *reviews-v1-*
 
-Install la siguente VirtualService para que todo el trafico sea dirigido a `reviews:v1`: 
+Install la siguente VirtualService para que el trafico sea dirigido el 50% a `reviews:v1` y el restante 50% a `reviews:v3`: 
 ```bash
 kubectl apply -f samples/bookinfo/networking/virtual-service-reviews-50-v3.yaml -n bookinfo
 ```
