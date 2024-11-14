@@ -272,10 +272,10 @@ Puedes probar el comportamiento de la gestión de tráfico ejecutando los siguie
 
 ## 7.2 Fault Injection (Inyección de Fallos)
 
-#### Descripción:
+- #### Descripción:
 La inyección de fallos permite simular problemas en el servicio, como latencia o errores, para probar la resiliencia de un sistema en condiciones no ideales.
 
-#### Ejemplo:
+- #### Ejemplo:
 
 Para probar la resiliencia de los microservicios de la aplicación Bookinfo, inyecta un retraso de 7 segundos entre los microservicios `reviews:v2` y `ratings` para el usuario *jason*. Esta prueba descubrirá un error que fue intencionadamente introducido en la aplicación Bookinfo.
 
@@ -294,11 +294,11 @@ Inyecta un retraso de 7 segundos entre los microservicios `reviews:v2` y `rating
 kubectl apply -f samples/bookinfo/networking/virtual-service-ratings-test-delay.yaml -n bookinfo
 ```
 
-**Explicación**: Este archivo aplica una regla que introduce un retraso de 7 segundos en las respuestas del servicio `ratings`, simulando latencia.
+- **Explicación**: Este archivo aplica una regla que introduce un retraso de 7 segundos en las respuestas del servicio `ratings`, simulando latencia.
 
-**Resultado Esperado**: Al acceder a `productpage`, se notará un retraso en el servicio `ratings`, permitiendo observar los efectos de la latencia en los servicios dependientes.
+- **Resultado Esperado**: Al acceder a `productpage`, se notará un retraso en el servicio `ratings`, permitiendo observar los efectos de la latencia en los servicios dependientes.
 
-**Verificación**
+- **Verificación**
 Abre la aplicación web Bookinfo en tu navegador.
 
 En la página web `/productpage`, inicia sesión como el usuario *jason*.
