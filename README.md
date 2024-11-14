@@ -228,7 +228,6 @@ Para la siguiente parte del laboratorio, se ha decidido utilizar las `APIs de Is
 El enrutamiento de solicitudes permite dirigir el tráfico a versiones específicas de un servicio según reglas, como encabezados HTTP, rutas de URL o porcentajes de tráfico. Es útil para implementaciones canary o pruebas A/B.
 
 #### Ejemplo:
-
 Notarás que a veces la salida de reseñas de libros contiene calificaciones con estrellas y otras veces no. Esto se debe a que, sin una versión de servicio predeterminada explícita para enrutar, Istio distribuye las solicitudes entre todas las versiones disponibles en un esquema de *round robin*.
 
 El objetivo inicial de esta tarea es aplicar reglas que enruten todo el tráfico a la versión v1 de los microservicios. Más adelante, aplicarás una regla para enrutar el tráfico en función del valor de un encabezado HTTP en la solicitud.
@@ -251,11 +250,13 @@ Istio utiliza *virtual services* para definir reglas de enrutamiento. Ejecuta el
 kubectl apply -f samples/bookinfo/networking/virtual-service-all-v1.yaml -n bookinfo
 ```
 
-**Explicación**: En este ejemplo, se aplican reglas de enrutamiento para el servicio Bookinfo. `destination-rule-all.yaml` define todas las versiones del servicio, mientras que `virtual-service-all-v1.yaml` dirige todo el tráfico a `reviews:v1`.
+#### Explicación: 
+En este ejemplo, se aplican reglas de enrutamiento para el servicio Bookinfo. `destination-rule-all.yaml` define todas las versiones del servicio, mientras que `virtual-service-all-v1.yaml` dirige todo el tráfico a `reviews:v1`.
 
-**Resultado Esperado**: Todo el tráfico de los usuarios se dirige a `reviews:v1`, por lo que solo debería aparecer `reviews:v1` en las respuestas en Browser en la parte **Book Reviews**.
+#### Resultado Esperado:
+Todo el tráfico de los usuarios se dirige a `reviews:v1`, por lo que solo debería aparecer `reviews:v1` en las respuestas en Browser en la parte **Book Reviews**.
 
-**Verificación**
+#### Verificación:
 Puedes probar el comportamiento de la gestión de tráfico ejecutando los siguientes comandos:
 
 1. Realiza un *port forward* del gateway (opcional si ya tienes el *forwarding* habilitado):
@@ -272,11 +273,10 @@ Puedes probar el comportamiento de la gestión de tráfico ejecutando los siguie
 
 ## 7.2 Fault Injection (Inyección de Fallos)
 
-- #### Descripción:
+#### Descripción:
 La inyección de fallos permite simular problemas en el servicio, como latencia o errores, para probar la resiliencia de un sistema en condiciones no ideales.
 
-- #### Ejemplo:
-
+#### Ejemplo:
 Para probar la resiliencia de los microservicios de la aplicación Bookinfo, inyecta un retraso de 7 segundos entre los microservicios `reviews:v2` y `ratings` para el usuario *jason*. Esta prueba descubrirá un error que fue intencionadamente introducido en la aplicación Bookinfo.
 
 Ten en cuenta que el servicio `reviews:v2` tiene un tiempo de espera de conexión codificado de 10 segundos para las llamadas al servicio `ratings`. Incluso con el retraso de 7 segundos que introdujiste, aún se espera que el flujo de extremo a extremo continúe sin errores.
@@ -293,12 +293,13 @@ Inyecta un retraso de 7 segundos entre los microservicios `reviews:v2` y `rating
 ```bash
 kubectl apply -f samples/bookinfo/networking/virtual-service-ratings-test-delay.yaml -n bookinfo
 ```
+#### Explicación:
+Este archivo aplica una regla que introduce un retraso de 7 segundos en las respuestas del servicio `ratings`, simulando latencia.
 
-- **Explicación**: Este archivo aplica una regla que introduce un retraso de 7 segundos en las respuestas del servicio `ratings`, simulando latencia.
+#### Resultado Esperado:
+Al acceder a `productpage`, se notará un retraso en el servicio `ratings`, permitiendo observar los efectos de la latencia en los servicios dependientes.
 
-- **Resultado Esperado**: Al acceder a `productpage`, se notará un retraso en el servicio `ratings`, permitiendo observar los efectos de la latencia en los servicios dependientes.
-
-- **Verificación**
+#### Verificación:
 Abre la aplicación web Bookinfo en tu navegador.
 
 En la página web `/productpage`, inicia sesión como el usuario *jason*.
@@ -353,11 +354,13 @@ kubectl apply -f samples/bookinfo/networking/virtual-service-reviews-v3.yaml
 
 **Ejecuta los pasos de verificación al final de esta sección de *traffic shifting*. Ahora deberias ver solo *reviews-v3-***
 
-**Explicación**: Esta regla divide el tráfico entre `reviews:v1` y `reviews:v3` según una proporción definida. Modifica la configuración para probar diferentes divisiones de tráfico, como 50%-50%.
+#### Explicación:
+Esta regla divide el tráfico entre `reviews:v1` y `reviews:v3` según una proporción definida. Modifica la configuración para probar diferentes divisiones de tráfico, como 50%-50%.
 
-**Resultado Esperado**: El tráfico hacia el servicio se dividirá entre `reviews:v1` y `reviews:v3`, y las respuestas deberían reflejar ambas versiones. Al final, todo el tráfico será dirigido a `reviews:v3`.
+#### Resultado Esperado:
+El tráfico hacia el servicio se dividirá entre `reviews:v1` y `reviews:v3`, y las respuestas deberían reflejar ambas versiones. Al final, todo el tráfico será dirigido a `reviews:v3`.
 
-**Verificación**
+#### Verificación:
 Actualiza la página `/productpage` en tu navegador y ahora verás las calificaciones con estrellas en color rojo aproximadamente el 50% de las veces. Esto se debe a que la versión `v3` de *reviews* accede al servicio de calificaciones con estrellas, mientras que la versión `v1` no lo hace.
 
 Ejecuta un script que llama 6 veces al servicio `productpage` y muestra la información sobre las `reviews`:
@@ -395,9 +398,11 @@ spec:
 EOF
 ```
 
-**Explicación**: Este ejemplo configura un límite de conexiones concurrentes a `reviews` y activa el corte de circuito si una instancia falla repetidamente.
+#### Explicación:
+Este ejemplo configura un límite de conexiones concurrentes a `reviews` y activa el corte de circuito si una instancia falla repetidamente.
 
-**Resultado Esperado**: Durante un fallo, la instancia problemática será temporalmente excluida, protegiendo la estabilidad general del sistema.
+#### Resultado Esperado:
+Durante un fallo, la instancia problemática será temporalmente excluida, protegiendo la estabilidad general del sistema.
 
 ## 7.5 Mirroring
 
@@ -427,9 +432,11 @@ spec:
 EOF
 ```
 
-**Explicación**: Esta configuración espeja el 50% del tráfico de `reviews:v1` a `reviews:v2`, permitiendo probar `v2` sin afectar el flujo principal de usuarios.
+#### Explicación:
+Esta configuración espeja el 50% del tráfico de `reviews:v1` a `reviews:v2`, permitiendo probar `v2` sin afectar el flujo principal de usuarios.
 
-**Resultado Esperado**: `reviews:v2` recibirá tráfico espejado, permitiendo observar su comportamiento bajo condiciones de tráfico real.
+#### Resultado Esperado:
+`reviews:v2` recibirá tráfico espejado, permitiendo observar su comportamiento bajo condiciones de tráfico real.
 
 ## 7.6 Ingress Gateway
 
