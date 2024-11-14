@@ -94,6 +94,14 @@ Las VMs consisten en:
     istioctl install -f samples/bookinfo/demo-profile-no-gateways.yaml -y
     ```
 
+### Contenido del Directorio istio-1.24.0 Descargado
+
+Este repositorio incluye:
+
+- La carpeta `/samples/bookinfo/gateway-api`, que contiene todos los *manifests* para desplegar y gestionar el tráfico utilizando las APIs de Gateway de Kubernetes. Incluye la definición del Gateway y varias HTTPRoute para configurar la gestión del tráfico.
+
+- La carpeta `/samples/bookinfo/networking`, que contiene todos los *manifests* para desplegar y gestionar el tráfico utilizando las APIs de Istio. Incluye la definición del Gateway de tipo `gateway.networking.istio.io` y varios VirtualService para configurar la gestión del tráfico.
+
 ## Paso 4: Habilitar Istio en el Clúster
 
 1. **Habilitar la Inyección de Istio en el Namespace bookinfo**
@@ -125,41 +133,76 @@ Las VMs consisten en:
 
 Los Kubernetes Gateway API CRDs (Custom Resource Definitions) son un conjunto de recursos personalizados que forman parte de la Gateway API en Kubernetes. Estos CRDs están diseñados para ofrecer un enfoque más flexible, extensible y controlado para gestionar el tráfico de red en Kubernetes, superando algunas de las limitaciones del recurso Ingress nativo. La Gateway API se enfoca en mejorar la administración de tráfico de entrada, como el enrutamiento, balanceo de carga, seguridad, y políticas de red avanzadas.
 
-1. **Instalar los CRDs del API Gateway**
+**Proceso de instalación de un Ingress Gateway**
 
-   La aplicación Bookinfo está desplegada, pero no es accesible desde el exterior. Para hacerla accesible, necesitas crear un *ingress gateway*, que mapea una ruta a un destino en el borde de tu *mesh*.
+La aplicación Bookinfo está desplegada, pero no es accesible desde el exterior. Para hacerla accesible, necesitas crear un *ingress gateway*, que mapea una ruta a un destino en el borde de tu *mesh*.
 
+```bash
+kubectl apply -f samples/bookinfo/gateway-api/bookinfo-gateway.yaml -n bookinfo
+```
+
+Este comando instala un Gateway de Kubernetes y un recurso HTTPRoute. Ejecuta el comando `kubectl get <tiporecurso> <nombrerecurso> -o yaml -n bookinfo` para ver la definición YAML de estos nuevos componentes de Kubernetes.
+
+Ejecuta el siguiente comando:
+
+```bash
+kubectl get svc -n bookinfo
+```
+
+Deberías ver que Istio crea un servicio **LoadBalancer** para un gateway. Como accederemos a este gateway mediante un túnel, no necesitamos un balanceador de carga. Cambiamos el tipo de servicio a ClusterIP añadiendo una anotación al gateway:
+
+```bash
+kubectl annotate gateway bookinfo-gateway networking.istio.io/service-type=ClusterIP --namespace=bookinfo
+```
+
+## Verificación de la aplicación con Port-Forwarding desde el IDE
+
+1. Expón la aplicación localmente. Desde el IDE, como Visual Studio Code (opcional):
    ```bash
-   kubectl apply -f samples/bookinfo/gateway-api/bookinfo-gateway.yaml -n bookinfo
-   ```
-
-   Este comando instala un Gateway de Kubernetes y un recurso HTTPRoute. Ejecuta el comando `kubectl get <tiporecurso> <nombrerecurso> -o yaml -n bookinfo` para ver la definición YAML de estos nuevos componentes de Kubernetes.
-
-   Ejecuta el siguiente comando:
-
-   ```bash
-   kubectl get svc -n bookinfo
-   ```
-
-   Deberías ver que Istio crea un servicio **LoadBalancer** para un gateway. Como accederemos a este gateway mediante un túnel, no necesitamos un balanceador de carga. Cambiamos el tipo de servicio a ClusterIP añadiendo una anotación al gateway:
-
-   ```bash
-   kubectl annotate gateway bookinfo-gateway networking.istio.io/service-type=ClusterIP --namespace=bookinfo
-   ```
-
-## Verification appliacion
-
-1. Expone la aplicación localmente (opcional):
-   ```bash
-   kubectl port-forward svc/productpage 9080:9080 -n bookinfo
+   kubectl port-forward svc/bookinfo-gateway-istio -n bookinfo 8080:80
    ```
 2. Prueba la aplicación desde el navegador (opcional):
-   - [http://127.0.0.1:9080/productpage](http://127.0.0.1:9080/productpage)
+   - [http://127.0.0.1:9080/productpage](http://localhost:8080/productpage)
 
 3. Si la aplicación se ve lenta o incorrecta, reinicia el `coredns` (opcional):
    ```bash
    kubectl -n kube-system rollout restart deployment coredns
    ```
+
+## Instalar Kiali Istio Dashboard
+
+Istio se integra con varias aplicaciones de telemetría que te ayudan a comprender la estructura de tu *service mesh*, mostrar su topología y analizar su estado de salud.
+Sigue las instrucciones a continuación para desplegar el dashboard de Kiali, junto con Prometheus, Grafana y Jaeger.
+
+1. Instala Kiali y los otros complementos, y espera a que se desplieguen. Ejecuta el siguiente comando en el Master Node:
+```bash
+kubectl apply -f samples/addons && \
+kubectl rollout status deployment/kiali -n istio-system
+```
+2. Accede al dashboard de Kiali.
+
+Usando la herramienta `istioctl`,
+
+```bash
+istioctl dashboard kiali
+```
+O ejecutando un port-forwarding del servicio Kiali.
+
+```bash
+kubectl port-forward svc/kiali -n istio-system 20001:20001
+```
+
+En el menú de navegación izquierdo, selecciona *Graph* y, en el desplegable *Namespace*, selecciona *default*.
+
+Para ver los datos en la Dashboard, debes enviar solicitudes a tu servicio. La cantidad de solicitudes depende de la tasa de muestreo de Istio y puede configurarse mediante la API de Telemetría. Con la tasa de muestreo predeterminada del 1%, necesitas enviar al menos 100 solicitudes antes de que el primer rastro sea visible. Para enviar 100 solicitudes al servicio `productpage`, utiliza el siguiente comando:
+
+```bash
+for i in $(seq 1 100); do curl -s -o /dev/null "http://127.0.0.1:8080/productpage"; done
+```
+
+Deberías ver la siguiente *service mesh* en tu dashboard de Kiali.
+
+![KIALI DASHBAORD](assets/images/kiali.PNG)
 
 ## Paso 7: Traffic Management
 
@@ -177,21 +220,55 @@ Entre las capacidades clave de la gestión de tráfico en Istio están:
 - Ingress Gateway
 - Egress Gateway
 
+Para la siguiente parte del laboratorio, se ha decidido utilizar las `APIs de Istio`, por lo que emplearemos el Ingress Gateway de tipo `gateway.networking.istio.io`. Dado que ya hemos integrado Istio y confiamos en sus funcionalidades avanzadas para la gestión del tráfico, el Istio Gateway es, en general, la elección más adecuada. Dicho esto, se utilizarán los *manifests* de los VirtualService contenidos en el directorio `/samples/bookinfo/networking`.
+
 ## 7.1 Request Routing
 
 #### Descripción:
 El enrutamiento de solicitudes permite dirigir el tráfico a versiones específicas de un servicio según reglas, como encabezados HTTP, rutas de URL o porcentajes de tráfico. Es útil para implementaciones canary o pruebas A/B.
 
 #### Ejemplo:
+
+Notarás que a veces la salida de reseñas de libros contiene calificaciones con estrellas y otras veces no. Esto se debe a que, sin una versión de servicio predeterminada explícita para enrutar, Istio distribuye las solicitudes entre todas las versiones disponibles en un esquema de *round robin*.
+
+El objetivo inicial de esta tarea es aplicar reglas que enruten todo el tráfico a la versión v1 de los microservicios. Más adelante, aplicarás una regla para enrutar el tráfico en función del valor de un encabezado HTTP en la solicitud.
+
+Istio utiliza *subsets* en las *destination rules* para definir versiones de un servicio. Ejecuta el siguiente comando para crear reglas de destino (DestinationRule) predeterminadas para los servicios de Bookinfo:
+
 ```bash
-kubectl apply -f samples/bookinfo/gateway-api/bookinfo-gateway.yaml
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.23/samples/bookinfo/networking/destination-rule-all.yaml -n bookinfo
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.23/samples/bookinfo/networking/virtual-service-all-v1.yaml
+kubectl apply -f samples/bookinfo/networking/destination-rule-all.yaml -n bookinfo
+```
+
+Espera unos segundos para que las reglas de destino se propaguen. Puedes ver las reglas de destino con el siguiente comando:
+
+```bash
+kubectl get destinationrules -n bookinfo -o yaml
+```
+
+Istio utiliza *virtual services* para definir reglas de enrutamiento. Ejecuta el siguiente comando para aplicar *virtual services* que enrutarán todo el tráfico a la versión v1 de cada microservicio:
+
+```bash
+kubectl apply -f samples/bookinfo/networking/virtual-service-all-v1.yaml -n bookinfo
 ```
 
 **Explicación**: En este ejemplo, se aplican reglas de enrutamiento para el servicio Bookinfo. `destination-rule-all.yaml` define todas las versiones del servicio, mientras que `virtual-service-all-v1.yaml` dirige todo el tráfico a `reviews:v1`.
 
-**Resultado Esperado**: Todo el tráfico de los usuarios se dirige a `reviews:v1`, por lo que solo debería aparecer `reviews:v1` en las respuestas.
+**Resultado Esperado**: Todo el tráfico de los usuarios se dirige a `reviews:v1`, por lo que solo debería aparecer `reviews:v1` en las respuestas en Browser en la parte **Book Reviews**.
+
+**Verificación**
+Puedes probar el comportamiento de la gestión de tráfico ejecutando los siguientes comandos:
+
+1. Realiza un *port forward* del gateway (opcional si ya tienes el *forwarding* habilitado):
+
+   ```bash
+   kubectl port-forward svc/istio-ingressgateway -n istio-ingress 8080:80
+   ```
+
+2. Ejecuta un script que llama 6 veces al servicio `productpage` y muestra la información sobre las `reviews`:
+
+   ```bash
+   for i in {1..6}; do curl -s "http://localhost:8080/productpage" | grep -o "reviews-v.*"; done
+   ```
 
 ## 7.2 Fault Injection (Inyección de Fallos)
 
@@ -199,13 +276,46 @@ kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.23/samp
 La inyección de fallos permite simular problemas en el servicio, como latencia o errores, para probar la resiliencia de un sistema en condiciones no ideales.
 
 #### Ejemplo:
+
+Para probar la resiliencia de los microservicios de la aplicación Bookinfo, inyecta un retraso de 7 segundos entre los microservicios `reviews:v2` y `ratings` para el usuario *jason*. Esta prueba descubrirá un error que fue intencionadamente introducido en la aplicación Bookinfo.
+
+Ten en cuenta que el servicio `reviews:v2` tiene un tiempo de espera de conexión codificado de 10 segundos para las llamadas al servicio `ratings`. Incluso con el retraso de 7 segundos que introdujiste, aún se espera que el flujo de extremo a extremo continúe sin errores.
+
+
+Install la siguente VirtualService para que el trafico sea dirigido a `reviews:v2` para el usuario *jason*. 
+
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/refs/heads/master/samples/bookinfo/networking/virtual-service-ratings-test-delay.yaml
+kubectl apply -f samples/bookinfo/networking/virtual-service-reviews-test-v2.yaml -n bookinfo
+```
+
+Inyecta un retraso de 7 segundos entre los microservicios `reviews:v2` y `ratings` para el usuario *jason*
+
+```bash
+kubectl apply -f samples/bookinfo/networking/virtual-service-ratings-test-delay.yaml -n bookinfo
 ```
 
 **Explicación**: Este archivo aplica una regla que introduce un retraso de 7 segundos en las respuestas del servicio `ratings`, simulando latencia.
 
 **Resultado Esperado**: Al acceder a `productpage`, se notará un retraso en el servicio `ratings`, permitiendo observar los efectos de la latencia en los servicios dependientes.
+
+**Verificación**
+Abre la aplicación web Bookinfo en tu navegador.
+
+En la página web `/productpage`, inicia sesión como el usuario *jason*.
+
+Se espera que la página de inicio de Bookinfo se cargue sin errores en aproximadamente 7 segundos. Sin embargo, hay un problema: la sección de *Reviews* muestra un mensaje de error:
+
+> Sorry, product reviews are currently unavailable for this book.
+
+Para ver los tiempos de respuesta de la página web:
+
+1. Abre el menú de Herramientas para Desarrolladores en tu navegador.
+2. Dirígete a la pestaña *Network*.
+3. Recarga la página `/productpage`. Verás que la página en realidad se carga en unos 6 segundos.
+
+Has encontrado un error. Existen tiempos de espera (*timeout*) codificados en los microservicios que han causado el fallo del servicio *reviews*.
+
+Como se esperaba, el retraso de 7 segundos que introdujiste no afecta al servicio *reviews* porque el *timeout* entre los servicios *reviews* y *ratings* está fijado en 10 segundos. Sin embargo, también hay un *timeout* codificado entre el servicio *productpage* y el servicio *reviews*, establecido en 3 segundos más 1 nuevo intento, para un total de 6 segundos. Como resultado, la llamada de *productpage* a *reviews* expira prematuramente y genera un error después de 6 segundos.
 
 ## 7.3 Traffic Shifting o Despliegue Canary (Cambio de Tráfico)
 
@@ -213,13 +323,50 @@ kubectl apply -f https://raw.githubusercontent.com/istio/istio/refs/heads/master
 El cambio de tráfico permite redirigir gradualmente el tráfico entre versiones de un servicio en proporciones específicas, útil para despliegues canary.
 
 #### Ejemplo:
+Ahora queremos dirigir el 50% del tráfico a `reviews:v1` y el 50% a `reviews:v3`. Luego, completarás la migración redirigiendo el 100% del tráfico a `reviews:v3`.
+
+Install la siguente VirtualService para que todo el trafico sea dirigido a `reviews:v1`: 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.23/samples/bookinfo/networking/virtual-service-reviews-test-v2.yaml
+kubectl apply -f samples/bookinfo/networking/virtual-service-all-v1.yaml -n bookinfo
 ```
 
-**Explicación**: Esta regla divide el tráfico entre `reviews:v1` y `reviews:v2` según una proporción definida. Modifica la configuración para probar diferentes divisiones de tráfico, como 50%-50%.
+Ejecuta un script que llama 6 veces al servicio `productpage` y muestra la información sobre las `reviews`:
 
-**Resultado Esperado**: El tráfico al servicio se dividirá entre `reviews:v1` y `reviews:v2`, y las respuestas deberían reflejar ambas versiones.
+```bash
+for i in {1..6}; do curl -s "http://localhost:8080/productpage" | grep -o "reviews-v.*"; done
+```
+
+Deberias ver solo *reviews-v1-*
+
+Install la siguente VirtualService para que todo el trafico sea dirigido a `reviews:v1`: 
+```bash
+kubectl apply -f samples/bookinfo/networking/virtual-service-reviews-50-v3.yaml -n bookinfo
+```
+
+**Ejecuta los pasos de verificación al final de esta sección de *traffic shifting*, en este momento, antes de continuar con el siguiente comando.**
+
+Supongamos que el microservicio `reviews:v3` es estable, puedes enrutar el 100% del tráfico a `reviews:v3` aplicando este *virtual service*:
+
+```bash
+kubectl apply -f samples/bookinfo/networking/virtual-service-reviews-v3.yaml
+```
+
+**Ejecuta los pasos de verificación al final de esta sección de *traffic shifting*. Ahora deberias ver solo *reviews-v3-***
+
+**Explicación**: Esta regla divide el tráfico entre `reviews:v1` y `reviews:v3` según una proporción definida. Modifica la configuración para probar diferentes divisiones de tráfico, como 50%-50%.
+
+**Resultado Esperado**: El tráfico hacia el servicio se dividirá entre `reviews:v1` y `reviews:v3`, y las respuestas deberían reflejar ambas versiones. Al final, todo el tráfico será dirigido a `reviews:v3`.
+
+**Verificación**
+Actualiza la página `/productpage` en tu navegador y ahora verás las calificaciones con estrellas en color rojo aproximadamente el 50% de las veces. Esto se debe a que la versión `v3` de *reviews* accede al servicio de calificaciones con estrellas, mientras que la versión `v1` no lo hace.
+
+Ejecuta un script que llama 6 veces al servicio `productpage` y muestra la información sobre las `reviews`:
+
+```bash
+for i in {1..6}; do curl -s "http://localhost:8080/productpage" | grep -o "reviews-v.*"; done
+```
+
+Deberias ver *reviews-v1-* y *reviews-v3-*. 
 
 ## 7.4 Circuit Breaking (Corte de Circuito)
 
