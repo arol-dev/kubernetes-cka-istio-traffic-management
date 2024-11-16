@@ -765,66 +765,268 @@ Inicia el ejemplo `httpbin`, que servirá como servicio de destino para el *ingr
 kubectl apply -f samples/httpbin/httpbin.yaml
 ```
 
+Creacion del Ingress Gateway: 
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: httpbin-gateway
+spec:
+  # The selector matches the ingress gateway pod labels.
+  # If you installed Istio using Helm following the standard documentation, this would be "istio=ingress"
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "httpbin.example.com"
+EOF
+```
+Aplica un VirtualService para definir las reglas de enrutamiento del tráfico de entrada:
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: httpbin
+spec:
+  hosts:
+  - "httpbin.example.com"
+  gateways:
+  - httpbin-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /status
+    - uri:
+        prefix: /delay
+    route:
+    - destination:
+        port:
+          number: 8000
+        host: httpbin
+EOF
+```
+Ahora has creado una configuración de *virtual service* para el servicio `httpbin`, que contiene dos reglas de enrutamiento que permiten el tráfico para las rutas `/status` y `/delay`.
+
+El *gateways* especifica que solo se permiten las solicitudes que pasen a través de tu `httpbin-gateway`. Todas las demás solicitudes externas serán rechazadas con una respuesta 404.
+
+Cada Gateway está respaldado por un servicio de tipo *LoadBalancer*. **La IP del balanceador de carga externo y los puertos de este servicio se utilizan para acceder al Gateway**. En nuestro entorno de desarrollo, el servicio de tipo *LoadBalancer* ya existe, pero se ha convertido en tipo *ClusterIP* para funcionar en un entorno local. Este servicio se llama `istio-ingressgateway` y fue configurado al inicio de este laboratorio.
+
+Para acceder a nuestra aplicación en un entorno local, desde nuestro IDE debemos habilitar un *Port Forwarding* para el `istio-ingressgateway`:
+
+```bash
+kubectl port-forward svc/istio-ingressgateway -n istio-ingress 9000:80
+```
+
+Ejecuta la solicitud HTTP con el *hostname* como *header*:
+
+```bash
+curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:8000/status/200"
+```
+
+Deberías recibir una respuesta HTTP desde la aplicación *httpbin*.
+
+Ejecuta una segunda solicitud HTTP hacia una ruta que no está definida en el *VirtualService*:
+
+```bash
+curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:8000/headers"
+```
+
+Deberías recibir una respuesta HTTP: **HTTP/1.1 404 Not Found**.
+
 #### Explicación:
 
+![INGRESS GATEWAY HTTPBIN](assets/images/esquema_gateway_istio.png)
+
+Hemos desplegado una aplicación *httpbin* que escucha en el puerto 8000 y definido un servicio *httpbin* para servir los pods. Posteriormente, configuramos un *gateway* que habilita el *hostname* `httpbin.example.com` y el puerto 80 sobre el servicio `istio-ingressgateway`, que opera de manera similar a un *ingress-controller* de Kubernetes. Finalmente, mediante la definición de la *VirtualService*, establecimos las rutas y el servicio encargado de responder a las solicitudes HTTP que llegan al *gateway* `httpbin-gateway`.
+
+Para verificar que nuestra configuración era correcta, activamos un *port-forwarding* del servicio `istio-ingressgateway`. Esto se debe a que, para acceder al *Gateway*, normalmente se utilizan la IP del balanceador de carga externo y los puertos de este servicio. Sin embargo, en nuestro entorno, el servicio se ha modificado al tipo *ClusterIP* y se llama `istio-ingressgateway`.
+
+![INGRESS GATEWAY HTTPBIN](assets/images/ingress_gateway.PNG)
+
 #### Resultado Esperado:
+Después de habilitar el *port forwarding*, la aplicación responde correctamente a las solicitudes realizadas sobre las rutas `/status` y `/delay`, definidas en el *VirtualService*. Por otro lado, responde con un error **404 Not Found** para las rutas no definidas en el *VirtualService*.
 
 #### Verificación:
 
-1. **Configuración del Ingress Gateway**
-    - **Instalar httpbin**:
-        ```bash
-        kubectl apply -f https://raw.githubusercontent.com/istio/istio/refs/heads/master/samples/httpbin/httpbin.yaml
-        ```
-    - **Crear Gateway**:
-        ```yaml
-        kubectl apply -f - <<EOF
-        apiVersion: networking.istio.io/v1
-        kind: Gateway
-        metadata:
-          name: httpbin-gateway
-        spec:
-          selector:
-            istio: ingressgateway
-          servers:
-          - port:
-              number: 80
-              name: http
-              protocol: HTTP
-            hosts:
-            - "httpbin.example.com"
-        EOF
-        ```
+Aquí tienes los comandos `kubectl get` para verificar los recursos desplegados en el clúster:
 
-2. **Revisar Detalles del Gateway**
-    ```bash
-    kubectl get gateway.networking.istio.io
-    kubectl get gateway # Puede no funcionar ya que utiliza Kubernetes Gateway
-    ```
+1. **Obtener los Gateways Istio configurados:**
+   ```bash
+   kubectl get gateway.networking.istio.io
+   ```
+
+2. **Obtener los servicios (Service) del namespace:**
+   ```bash
+   kubectl get svc -n istio-ingress
+   kubectl get svc
+   ```
+
+3. **Obtener los pods desplegados por Httpbin:**
+   ```bash
+   kubectl get pods
+   ```
+
+4. **Obtener los VirtualServices configurados:**
+   ```bash
+   kubectl get virtualservice
+   ```
+
+Para enviar múltiples solicitudes HTTP, puedes utilizar el siguiente comando:
+
+```bash
+for i in {1..6}; do curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:8000/status/200"; done
+```
 
 ## 7.6 Egress Gateway
 
 #### Descripción:
+El Ingress Gateway de Istio es un recurso que permite gestionar y controlar el tráfico entrante a un clúster de Kubernetes desde fuera del *service mesh*. A diferencia del recurso Ingress estándar de Kubernetes, el Gateway de Istio ofrece mayor flexibilidad y capacidades avanzadas, como la aplicación de políticas de enrutamiento, autenticación, monitoreo y balanceo de carga. Este recurso actúa como un punto de entrada que integra el tráfico externo con las aplicaciones distribuidas dentro del clúster, aprovechando las funciones de Istio para asegurar y optimizar las comunicaciones.
 
 #### Ejemplo:
+Esta tarea describe cómo configurar Istio para exponer un servicio fuera del *service mesh* utilizando un Gateway.
+
+### Limpieza del Entorno del Ejercicio Anterior
+Para garantizar que el entorno esté limpio antes de continuar, elimina los recursos creados en el ejercicio anterior con los siguientes comandos:
+
+```bash
+kubectl delete gateway httpbin-gateway
+kubectl delete virtualservice httpbin
+kubectl delete --ignore-not-found=true -f samples/httpbin/httpbin.yaml
+```
+
+Despliega la aplicación de ejemplo *curl* para usarla como fuente de prueba para enviar solicitudes.
+
+```bash
+kubectl apply -f samples/curl/curl.yaml
+```
+
+Creacion del Ingress Gateway: 
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: httpbin-gateway
+spec:
+  # The selector matches the ingress gateway pod labels.
+  # If you installed Istio using Helm following the standard documentation, this would be "istio=ingress"
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "httpbin.example.com"
+EOF
+```
+Aplica un VirtualService para definir las reglas de enrutamiento del tráfico de entrada:
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: httpbin
+spec:
+  hosts:
+  - "httpbin.example.com"
+  gateways:
+  - httpbin-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /status
+    - uri:
+        prefix: /delay
+    route:
+    - destination:
+        port:
+          number: 8000
+        host: httpbin
+EOF
+```
+Ahora has creado una configuración de *virtual service* para el servicio `httpbin`, que contiene dos reglas de enrutamiento que permiten el tráfico para las rutas `/status` y `/delay`.
+
+El *gateways* especifica que solo se permiten las solicitudes que pasen a través de tu `httpbin-gateway`. Todas las demás solicitudes externas serán rechazadas con una respuesta 404.
+
+Cada Gateway está respaldado por un servicio de tipo *LoadBalancer*. **La IP del balanceador de carga externo y los puertos de este servicio se utilizan para acceder al Gateway**. En nuestro entorno de desarrollo, el servicio de tipo *LoadBalancer* ya existe, pero se ha convertido en tipo *ClusterIP* para funcionar en un entorno local. Este servicio se llama `istio-ingressgateway` y fue configurado al inicio de este laboratorio.
+
+Para acceder a nuestra aplicación en un entorno local, desde nuestro IDE debemos habilitar un *Port Forwarding* para el `istio-ingressgateway`:
+
+```bash
+kubectl port-forward svc/istio-ingressgateway -n istio-ingress 9000:80
+```
+
+Ejecuta la solicitud HTTP con el *hostname* como *header*:
+
+```bash
+curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:8000/status/200"
+```
+
+Deberías recibir una respuesta HTTP desde la aplicación *httpbin*.
+
+Ejecuta una segunda solicitud HTTP hacia una ruta que no está definida en el *VirtualService*:
+
+```bash
+curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:8000/headers"
+```
+
+Deberías recibir una respuesta HTTP: **HTTP/1.1 404 Not Found**.
 
 #### Explicación:
 
+![INGRESS GATEWAY HTTPBIN](assets/images/esquema_gateway_istio.png)
+
+Hemos desplegado una aplicación *httpbin* que escucha en el puerto 8000 y definido un servicio *httpbin* para servir los pods. Posteriormente, configuramos un *gateway* que habilita el *hostname* `httpbin.example.com` y el puerto 80 sobre el servicio `istio-ingressgateway`, que opera de manera similar a un *ingress-controller* de Kubernetes. Finalmente, mediante la definición de la *VirtualService*, establecimos las rutas y el servicio encargado de responder a las solicitudes HTTP que llegan al *gateway* `httpbin-gateway`.
+
+Para verificar que nuestra configuración era correcta, activamos un *port-forwarding* del servicio `istio-ingressgateway`. Esto se debe a que, para acceder al *Gateway*, normalmente se utilizan la IP del balanceador de carga externo y los puertos de este servicio. Sin embargo, en nuestro entorno, el servicio se ha modificado al tipo *ClusterIP* y se llama `istio-ingressgateway`.
+
+![INGRESS GATEWAY HTTPBIN](assets/images/ingress_gateway.PNG)
+
 #### Resultado Esperado:
+Después de habilitar el *port forwarding*, la aplicación responde correctamente a las solicitudes realizadas sobre las rutas `/status` y `/delay`, definidas en el *VirtualService*. Por otro lado, responde con un error **404 Not Found** para las rutas no definidas en el *VirtualService*.
 
 #### Verificación:
 
-1. **Cambiar Tipo de Servicio y Añadir Anotación**
-    ```bash
-    kubectl edit gateway httpbin-gateway
-    # Añadir la anotación:
-    networking.istio.io/service-type: ClusterIP
-    ```
+Aquí tienes los comandos `kubectl get` para verificar los recursos desplegados en el clúster:
 
-2. **Port-Forward y Prueba de Acceso**
-    ```bash
-    curl -s -I -HHost:httpbin.example.com "http://localhost:10000/status/200"
-    ```
+1. **Obtener los Gateways Istio configurados:**
+   ```bash
+   kubectl get gateway.networking.istio.io
+   ```
+
+2. **Obtener los servicios (Service) del namespace:**
+   ```bash
+   kubectl get svc -n istio-ingress
+   kubectl get svc
+   ```
+
+3. **Obtener los pods desplegados por Httpbin:**
+   ```bash
+   kubectl get pods
+   ```
+
+4. **Obtener los VirtualServices configurados:**
+   ```bash
+   kubectl get virtualservice
+   ```
+
+Para enviar múltiples solicitudes HTTP, puedes utilizar el siguiente comando:
+
+```bash
+for i in {1..6}; do curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:8000/status/200"; done
+```
 
 ## Troubleshooting Envoy Proxy Sidecar
 Para solucionar problemas, inspecciona los logs del contenedor sidecar en los pods con Istio inyectado.
