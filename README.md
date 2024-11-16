@@ -374,71 +374,402 @@ Deberias ver *reviews-v1-* y *reviews-v3-*.
 ## 7.4 Circuit Breaking (Corte de Circuito)
 
 #### Descripción:
-El corte de circuito ayuda a proteger los servicios al detener el tráfico hacia instancias que fallan continuamente, mejorando así la resiliencia del sistema.
+El *circuit breaking* es un patrón fundamental para crear aplicaciones de microservicios resilientes. Este enfoque permite diseñar aplicaciones que minimicen el impacto de fallos, picos de latencia y otros efectos no deseados derivados de las peculiaridades de la red. Al limitar la cantidad de solicitudes que pueden pasar a un servicio en condiciones específicas, se previenen sobrecargas y se garantiza una mejor estabilidad del sistema.
+
+En esta actividad, configurarás reglas de *circuit breaking* y posteriormente probarás la configuración activando deliberadamente el interruptor del circuito. Esto te permitirá observar cómo Istio gestiona escenarios de fallos y mantiene la resiliencia en tu *service mesh*.
 
 #### Ejemplo:
+La aplicación *httpbin* sirve como el servicio de backend para esta actividad. Para interactuar con este servicio, crearás un cliente llamado *fortio*, una herramienta de prueba de carga. *Fortio* te permitirá controlar el número de conexiones, la concurrencia y los retrasos en las llamadas HTTP salientes. Utilizarás este cliente para "activar" las políticas de *circuit breaking* que configures en el `DestinationRule`.
+
+Habilita Istio sobre el namespace `default`: 
+```bash
+kubectl label namespace default istio-injection=enabled
+```
+
+Desplega el servicio de backend httpbin:
+
+```bash
+kubectl apply -f samples/httpbin/httpbin.yaml
+```
+
+Crea un DestinationRule por el servicio de backend.
 ```yaml
 kubectl apply -f - <<EOF
-apiVersion: networking.istio.io/v1alpha3
+apiVersion: networking.istio.io/v1
 kind: DestinationRule
 metadata:
-  name: reviews-circuit-breaker
+  name: httpbin
 spec:
-  host: reviews
+  host: httpbin
   trafficPolicy:
     connectionPool:
+      tcp:
+        maxConnections: 1
       http:
         http1MaxPendingRequests: 1
         maxRequestsPerConnection: 1
     outlierDetection:
-      consecutiveErrors: 1
+      consecutive5xxErrors: 1
       interval: 1s
       baseEjectionTime: 3m
       maxEjectionPercent: 100
 EOF
 ```
 
+Inyecta el cliente con el *sidecar proxy* de Istio para que las interacciones de red sean gestionadas por Istio, despliega el servicio *fortio* con el siguiente comando:
+
+```bash
+$ kubectl apply -f samples/httpbin/sample-client/fortio-deploy.yaml
+```
+
+Inicia sesión en el *pod* del cliente y utiliza la herramienta *fortio* para hacer llamadas al servicio *httpbin*. Pasa `curl` como parámetro para indicar que solo deseas realizar una llamada:
+
+```bash
+$ kubectl exec -it <fortio-pod-name> -c fortio -- /usr/bin/fortio curl http://httpbin:8000
+```
+
+O puedes ejecutar estos comandos:
+
+```bash
+export FORTIO_POD=$(kubectl get pods -l app=fortio -o 'jsonpath={.items[0].metadata.name}') && \
+kubectl exec "$FORTIO_POD" -c fortio -- /usr/bin/fortio curl -quiet http://httpbin:8000/get
+```
+
+En la configuración del `DestinationRule`, especificaste `maxConnections: 1` y `http1MaxPendingRequests: 1`. Estas reglas indican que, si excedes más de una conexión y una solicitud simultáneamente, deberías observar algunos fallos cuando el *istio-proxy* active el *circuit breaker* para bloquear solicitudes y conexiones adicionales.
+
+Utilizamos el cliente *fortio* con dos conexiones concurrentes (`-c 2`) y enviamos 20 solicitudes (`-n 20`):
+
+```bash
+kubectl exec "$FORTIO_POD" -c fortio -- /usr/bin/fortio load -c 2 -qps 0 -n 20 -loglevel Warning http://httpbin:8000/get
+```
+
+Es interesante observar que casi todas las solicitudes fueron procesadas exitosamente. El *istio-proxy* permite cierta flexibilidad.
+
+- **Código 200:** 17 (85.0 %)  
+- **Código 503:** 3 (15.0 %)  
+
+Esto indica que aunque las políticas de *circuit breaking* están configuradas, el proxy de Istio permite manejar algunas solicitudes adicionales antes de aplicar restricciones más estrictas.
+
+Incrementa el número de conexiones concurrentes a 3:
+
+```bash
+kubectl exec "$FORTIO_POD" -c fortio -- /usr/bin/fortio load -c 3 -qps 0 -n 30 -loglevel Warning http://httpbin:8000/get
+```
+
+Ahora comienzas a observar el comportamiento esperado del *circuit breaking*. Solo el 36.7% de las solicitudes se procesaron con éxito, mientras que el resto fueron bloqueadas por el *circuit breaker*:
+
+- **Código 200:** 11 (36.7 %)  
+- **Código 503:** 19 (63.3 %)  
+
+Esto confirma que las políticas configuradas están funcionando correctamente al limitar las solicitudes concurrentes según las reglas establecidas.
+
 #### Explicación:
-Este ejemplo configura un límite de conexiones concurrentes a `reviews` y activa el corte de circuito si una instancia falla repetidamente.
+Este ejemplo configura un límite de conexiones concurrentes al servicio `httpbin` igual a 1. Esto significa que, cuando el servicio recibe más de una solicitud HTTP al mismo tiempo, el *sidecar proxy* de Istio redirige las solicitudes adicionales al *Circuit Breaker* y devuelve un error 503.  
+
+Es muy interesante observar cómo el servicio sigue funcionando y respondiendo a algunas solicitudes HTTP, mientras que nuestro servicio está controlado por el *sidecar proxy*. Esto evita errores causados por picos de latencia y otros efectos no deseados derivados de las peculiaridades de la red.  
+
+Al limitar la cantidad de solicitudes concurrentes, se previenen sobrecargas y se garantiza una mayor estabilidad para el sistema backend `httpbin`. Esto demuestra cómo el *Circuit Breaking* es una herramienta clave para mantener la resiliencia en sistemas distribuidos.
 
 #### Resultado Esperado:
-Durante un fallo, la instancia problemática será temporalmente excluida, protegiendo la estabilidad general del sistema.
+Puedes observar el comportamiento esperado del *circuit breaking*. Solo el 36.7% de las solicitudes se procesaron con éxito, mientras que el resto fueron bloqueadas por el *circuit breaker*:
+
+- **Código 200:** 11 (36.7 %)  
+- **Código 503:** 19 (63.3 %)  
+
+#### Verificación:
+Incrementa el número de conexiones concurrentes para observar un aumento en las solicitudes con código 503. Alternativamente, puedes establecer el número de conexiones en 1 para verificar que el backend responde con éxito a todas las solicitudes:
+
+```bash
+# Incrementa el número de conexiones concurrentes
+kubectl exec -it <fortio-pod-name> -c fortio -- /usr/bin/fortio load -c <número_de_conexiones> -n <número_de_solicitudes> http://httpbin:8000
+
+# Establece el número de conexiones en 1
+kubectl exec "$FORTIO_POD" -c fortio -- /usr/bin/fortio load -c 1 -qps 0 -n 30 -loglevel Warning http://httpbin:8000/get
+```
 
 ## 7.5 Mirroring
 
 #### Descripción:
-El espejado permite duplicar solicitudes a una nueva versión de un servicio para realizar pruebas, enviando tráfico a una nueva versión sin afectar a los usuarios finales.
+El *Traffic Mirroring*, también conocido como *shadowing*, es un concepto poderoso que permite a los equipos de desarrollo implementar cambios en producción con el menor riesgo posible. El mirroring envía una copia del tráfico en vivo a un servicio espejado. Este tráfico se gestiona fuera del flujo crítico de las solicitudes del servicio principal.
 
 #### Ejemplo:
-```yaml
-kubectl apply -f - <<EOF
-apiVersion: networking.istio.io/v1alpha3
-kind: VirtualService
+En esta actividad, primero forzarás que todo el tráfico vaya a la versión `v1` del servicio httbin. Luego, aplicarás una regla para espejar una porción del tráfico hacia la versión `v2` del mismo servicio de backend httbin.
+
+### Limpieza del Entorno del Ejercicio Anterior
+Para garantizar que el entorno esté limpio antes de continuar, elimina los recursos creados en el ejercicio anterior con los siguientes comandos:
+
+```bash
+kubectl delete destinationrule httpbin
+kubectl delete -f samples/httpbin/sample-client/fortio-deploy.yaml
+kubectl delete -f samples/httpbin/httpbin.yaml
+```
+
+Comienza desplegando dos versiones del servicio `httpbin` con el registro de accesos habilitado:
+
+**Despliega `httpbin-v1`:**
+
+```bash
+kubectl create -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: reviews-mirroring
+  name: httpbin-v1
 spec:
-  hosts:
-  - reviews
-  http:
-  - route:
-    - destination:
-        host: reviews
-        subset: v1
-    mirror:
-      host: reviews
-      subset: v2
-    mirrorPercentage:
-      value: 50.0
+  replicas: 1
+  selector:
+    matchLabels:
+      app: httpbin
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: httpbin
+        version: v1
+    spec:
+      containers:
+      - image: docker.io/kennethreitz/httpbin
+        imagePullPolicy: IfNotPresent
+        name: httpbin
+        command: ["gunicorn", "--access-logfile", "-", "-b", "0.0.0.0:80", "httpbin:app"]
+        ports:
+        - containerPort: 80
+EOF
+
+```
+
+**Despliega `httpbin-v2`:**
+
+```bash
+kubectl create -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: httpbin-v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: httpbin
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: httpbin
+        version: v2
+    spec:
+      containers:
+      - image: docker.io/kennethreitz/httpbin
+        imagePullPolicy: IfNotPresent
+        name: httpbin
+        command: ["gunicorn", "--access-logfile", "-", "-b", "0.0.0.0:80", "httpbin:app"]
+        ports:
+        - containerPort: 80
 EOF
 ```
 
+**Despliega un Service por las dos aplicaciones `httpbin`:**
+
+```bash
+kubectl create -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpbin
+  labels:
+    app: httpbin
+spec:
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 80
+  selector:
+    app: httpbin
+EOF
+``` 
+
+**Despliega un aplicacion `curl` que usarás para enviar solicitudes al servicio `httpbin`:**
+
+```bash
+cat <<EOF | kubectl create -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: curl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: curl
+  template:
+    metadata:
+      labels:
+        app: curl
+    spec:
+      containers:
+      - name: curl
+        image: curlimages/curl
+        command: ["/bin/sleep","3650d"]
+        imagePullPolicy: IfNotPresent
+EOF
+```
+**Creación de una política de enrutamiento predeterminada**  
+
+Por defecto, Kubernetes equilibra la carga entre ambas versiones del servicio `httpbin`. En este paso, cambiarás ese comportamiento para que todo el tráfico se dirija a `v1`.  
+
+**Crea una VirtulService y un DestinationRule del API Istio para dirigir todo el tráfico a `v1` del servicio:**  
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: httpbin
+spec:
+  hosts:
+- httpbin
+  http:
+  - route:
+- destination:
+    host: httpbin
+    subset: v1
+  weight: 100
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: httpbin
+spec:
+  host: httpbin
+  subsets:
+  - name: v1
+    labels:
+      version: v1
+  - name: v2
+    labels:
+      version: v2
+EOF
+```  
+
+Este manifiesto define un `VirtualService` que enruta todas las solicitudes al subset `v1` del servicio `httpbin`. Ahora, con todo el tráfico dirigido a `httpbin:v1`, envía una solicitud al servicio:
+
+```bash
+kubectl exec deploy/curl -c curl -- curl -sS http://httpbin:8000/headers
+```
+
+Esto enviará una solicitud HTTP al servicio `httpbin` en el puerto `8000`, devolviendo los encabezados de la solicitud procesados por la versión `v1` del servicio.
+
+Verifica los logs de los pods `httpbin-v1` y `httpbin-v2`. Deberías ver entradas de registro de acceso para `v1` y ninguna para `v2`:
+
+1. **Revisar los logs del pod `httpbin-v1`:**
+
+   ```bash
+   kubectl logs deploy/httpbin-v1 -c httpbin
+   ```
+
+2. **Revisar los logs del pod `httpbin-v2`:**
+
+   ```bash
+   kubectl logs deploy/httpbin-v2 -c httpbin
+   ```
+
+   Aquí deberías verificar que no hay registros de acceso procesados por `httpbin-v2`.
+
+**Espejar tráfico a `httpbin-v2`**  
+
+Modifica la regla de enrutamiento para espejar el tráfico hacia `httpbin-v2`. Aplica la siguiente configuración:  
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: httpbin
+spec:
+  hosts:
+  - httpbin
+  http:
+  - route:
+    - destination:
+        host: httpbin
+        subset: v1
+      weight: 100
+    mirror:
+      host: httpbin
+      subset: v2
+    mirrorPercentage:
+      value: 100.0
+
+EOF
+```  
+
+Esta regla enruta todo el tráfico al subset `v1` del servicio `httpbin` y, al mismo tiempo, crea un espejo de las solicitudes hacia `v2`. El tráfico espejado no afecta el flujo principal de la solicitud, pero permite monitorear cómo `v2` manejaría las mismas solicitudes.
+
+Envía el tráfico:
+
+```bash
+kubectl exec deploy/curl -c curl -- curl -sS http://httpbin:8000/headers
+```
+
 #### Explicación:
-Esta configuración espeja el 50% del tráfico de `reviews:v1` a `reviews:v2`, permitiendo probar `v2` sin afectar el flujo principal de usuarios.
+Esta configuración espeja el 100% del tráfico de `httpbin:v1` a `httpbin:v2`, lo que permite probar `v2` sin afectar el flujo principal de los usuarios.
 
 #### Resultado Esperado:
-`reviews:v2` recibirá tráfico espejado, permitiendo observar su comportamiento bajo condiciones de tráfico real.
+El 100% de las solicitudes HTTP enviadas a `httpbin:v1` serán recibidas como tráfico espejado por la aplicación `httpbin:v2`.
+
+#### Verificación:
+Envía el tráfico:
+
+```bash
+kubectl exec deploy/curl -c curl -- curl -sS http://httpbin:8000/headers
+```
+Revisar los logs del pod `httpbin-v1`:
+
+```bash
+kubectl logs deploy/httpbin-v1 -c httpbin
+```
+
+Revisar los logs del pod `httpbin-v2`:
+
+```bash
+kubectl logs deploy/httpbin-v2 -c httpbin
+```
+
+Ahora deberías ver registros de acceso tanto para `v1` como para `v2`. Los registros de acceso creados en `v2` corresponden a las solicitudes espejadas que en realidad están siendo procesadas por `v1`.
 
 ## 7.6 Ingress Gateway
+
+#### Descripción:
+El Ingress Gateway de Istio es un recurso que permite gestionar y controlar el tráfico entrante a un clúster de Kubernetes desde fuera del *service mesh*. A diferencia del recurso Ingress estándar de Kubernetes, el Gateway de Istio ofrece mayor flexibilidad y capacidades avanzadas, como la aplicación de políticas de enrutamiento, autenticación, monitoreo y balanceo de carga. Este recurso actúa como un punto de entrada que integra el tráfico externo con las aplicaciones distribuidas dentro del clúster, aprovechando las funciones de Istio para asegurar y optimizar las comunicaciones.
+
+#### Ejemplo:
+Esta tarea describe cómo configurar Istio para exponer un servicio fuera del *service mesh* utilizando un Gateway.
+
+### Limpieza del Entorno del Ejercicio Anterior
+Para garantizar que el entorno esté limpio antes de continuar, elimina los recursos creados en el ejercicio anterior con los siguientes comandos:
+
+Elimina las reglas:
+```bash
+kubectl delete virtualservice httpbin
+kubectl delete destinationrule httpbin
+```
+
+Elimina los despliegues httpbin y curl, así como el servicio httpbin:
+```bash
+kubectl delete deploy httpbin-v1 httpbin-v2 curl
+kubectl delete svc httpbin
+```
+
+Inicia el ejemplo `httpbin`, que servirá como servicio de destino para el *ingress traffic*:
+
+```bash
+kubectl apply -f samples/httpbin/httpbin.yaml
+```
+
+#### Explicación:
+
+#### Resultado Esperado:
+
+#### Verificación:
 
 1. **Configuración del Ingress Gateway**
     - **Instalar httpbin**:
@@ -472,6 +803,16 @@ Esta configuración espeja el 50% del tráfico de `reviews:v1` a `reviews:v2`, p
     ```
 
 ## 7.6 Egress Gateway
+
+#### Descripción:
+
+#### Ejemplo:
+
+#### Explicación:
+
+#### Resultado Esperado:
+
+#### Verificación:
 
 1. **Cambiar Tipo de Servicio y Añadir Anotación**
     ```bash
