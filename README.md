@@ -1029,4 +1029,31 @@ for i in {1..6}; do curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:8000
 ```
 
 ## Troubleshooting Envoy Proxy Sidecar
-Para solucionar problemas, inspecciona los logs del contenedor sidecar en los pods con Istio inyectado.
+Para solucionar problemas, inspecciona los registros del contenedor *sidecar* en los pods con Istio inyectado utilizando los siguientes comandos:
+
+1. **Listar los pods en el namespace:**
+   ```bash
+   kubectl get pods -n <namespace>
+   ```
+
+2. **Inspeccionar los registros del contenedor `istio-proxy` (sidecar):**
+   ```bash
+   kubectl logs <nombre-del-pod> -c istio-proxy -n <namespace>
+   ```
+
+3. **Ver los últimos registros en tiempo real:**
+   ```bash
+   kubectl logs -f <nombre-del-pod> -c istio-proxy -n <namespace>
+   ```
+
+4. **Buscar errores específicos en los registros:**
+   ```bash
+   kubectl logs <nombre-del-pod> -c istio-proxy -n <namespace> | grep "error"
+   ```
+
+5. **Describir el pod para verificar la configuración de Istio:**
+   ```bash
+   kubectl describe pod <nombre-del-pod> -n <namespace>
+   ```
+
+Estos comandos te permitirán identificar y solucionar problemas relacionados con el *sidecar proxy* de Istio. Asegúrate de reemplazar `<nombre-del-pod>` y `<namespace>` con los valores correspondientes en tu entorno.
