@@ -189,28 +189,36 @@ Deberías ver la siguiente *service mesh* en tu dashboard de Kiali.
 
 ![BOOKINFO KIALI DASHBAORD](assets/images/bookinfo-kiali.PNG)
 
-## Paso 6: Instalar Ingress y Egress Gateways Istio
+## Paso 6: Instalación de Ingress Gateway y Egress Gateway en el Clúster
 
-Para tener un entorno de *networking* más completo y eficiente, en este paso procederemos a instalar un *Ingress Gateway* y un *Egress Gateway* en nuestro clúster. Para instalar ambos componentes, necesitas copiar los dos *manifests* contenidos en la carpeta `istio-manifests` y aplicarlos con los siguientes comandos:
+Para crear un entorno de *networking* más completo y eficiente, procederemos a instalar un *Ingress Gateway* y un *Egress Gateway* en nuestro clúster. Estos componentes se instalarán utilizando los *manifests* disponibles en la carpeta `istio-manifests`. Aplica los siguientes comandos para desplegarlos:
 
-Ingress Gateway
+**Ingress Gateway**  
 ```bash
 istioctl install -f ingress.yaml
 ```
 
-Egress gateway
+**Egress Gateway**  
 ```bash
 istioctl install -f egress.yaml
 ```
 
-El servicio de *Ingress* de Istio se crea por defecto como un tipo *LoadBalancer*, pero para trabajar en un entorno local necesitamos cambiar el tipo del servicio a *ClusterIP*. Para hacer esto, edita la configuración utilizando el siguiente comando:
+El servicio de *Ingress* de Istio se crea, por defecto, como un tipo *LoadBalancer*. Sin embargo, para trabajar en un entorno local, necesitamos cambiar el tipo del servicio a *ClusterIP*. Para realizar este cambio, edita la configuración del servicio utilizando el siguiente comando:
 
 ```bash
 # Modifica el tipo de svc desde LoadBalancer a ClusterIP
 kubectl edit svc istio-ingressgateway -n istio-system
-``` 
+```
 
-En el archivo de configuración que se abre, localiza el campo `type: LoadBalancer` y cámbialo a `type: ClusterIP`. Guarda y cierra el editor para aplicar los cambios.
+En el archivo de configuración que se abre, localiza la línea que contiene `type: LoadBalancer` y cámbiala a `type: ClusterIP`. Una vez realizados los cambios, guarda y cierra el editor para que estos se apliquen.
+
+**Uso de Istio APIs para la Gestión Avanzada de Tráfico**
+
+En la siguiente parte del laboratorio, hemos optado por utilizar las `APIs de Istio`, por lo que hemos desplegado un *Ingress Gateway* y un *Egress Gateway* utilizando el tipo de recurso `gateway.networking.istio.io`. 
+
+Dado que ya hemos integrado Istio y confiamos en sus funcionalidades avanzadas para la gestión del tráfico, el *Istio Gateway* es la elección más adecuada en este caso. Para completar la configuración, utilizaremos los *manifests* de los `VirtualService` y las `DestinationRules` que se encuentran en el directorio `/samples/bookinfo/networking` proporcionado por Istio.
+
+Esta configuración nos permitirá aprovechar al máximo las capacidades de Istio en la gestión de tráfico y la estabilidad del sistema.
 
 ## Paso 7: Traffic Management
 
@@ -227,10 +235,6 @@ Entre las capacidades clave de la gestión de tráfico en Istio están:
 - Mirroring
 - Ingress Gateway
 - Egress Gateway
-
-Para la siguiente parte del laboratorio, se ha decidido utilizar las `APIs de Istio`, por lo que emplearemos el Ingress y Egress Gateway de tipo `gateway.networking.istio.io`. Dado que ya hemos integrado Istio y confiamos en sus funcionalidades avanzadas para la gestión del tráfico, el Istio Gateway es, en general, la elección más adecuada. Dicho esto, se utilizarán los *manifests* de los VirtualService contenidos en el directorio `/samples/bookinfo/networking`.
-
-![KIALI DASHBAORD](assets/images/kiali.PNG)
 
 ## 7.1 Request Routing
 
