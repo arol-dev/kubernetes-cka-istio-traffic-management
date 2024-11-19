@@ -91,8 +91,9 @@ Las VMs consisten en:
 
 4. **Instalar Istio Usando el Perfil Minimal**
    ```bash
-   istioctl install --set profile=minimal -y 
+   istioctl install --set profile=minimal -y --set meshConfig.accessLogFile=/dev/stdout
    ```
+   `--set meshConfig.accessLogFile=/dev/stdout` habilita el registro de acceso (*access logging*) de Envoy Proxies. 
 
 ### Contenido del Directorio istio-1.24.0 Descargado
 
@@ -145,7 +146,7 @@ Este repositorio incluye:
    Te recomiendo no cerrar este *port forwarding*, ya que podría ser interesante analizarlo o utilizarlo en el futuro.
 
 2. Prueba la aplicación desde el navegador (opcional):
-   - [http://127.0.0.1:9080/productpage](http://localhost:8080/productpage)
+   - [http://127.0.0.1:9080/productpage](http://localhost:9080/productpage)
 
 3. Si la aplicación se ve lenta o incorrecta, reinicia el `coredns` (opcional):
    ```bash
@@ -245,6 +246,12 @@ El enrutamiento de solicitudes permite dirigir el tráfico a versiones específi
 Notarás que a veces la salida de reseñas de libros contiene calificaciones con estrellas y otras veces no. Esto se debe a que, sin una versión de servicio predeterminada explícita para enrutar, Istio distribuye las solicitudes entre todas las versiones disponibles en un esquema de *round robin*.
 
 El objetivo inicial de esta tarea es aplicar reglas que enruten todo el tráfico a la versión v1 de los microservicios. Más adelante, aplicarás una regla para enrutar el tráfico en función del valor de un encabezado HTTP en la solicitud.
+
+Como primer paso, es necesario instalar un *Ingress Gateway*. Para desplegarlo, utilizaremos el siguiente *manifest* ubicado en el directorio correspondiente:
+
+```bash
+kubectl apply -f samples/bookinfo/networking/bookinfo-gateway.yaml -n bookinfo
+```
 
 Istio utiliza *subsets* en las *destination rules* para definir versiones de un servicio. Ejecuta el siguiente comando para crear reglas de destino (DestinationRule) predeterminadas para los servicios de Bookinfo:
 
@@ -363,7 +370,7 @@ kubectl apply -f samples/bookinfo/networking/virtual-service-reviews-50-v3.yaml 
 Supongamos que el microservicio `reviews:v3` es estable, puedes enrutar el 100% del tráfico a `reviews:v3` aplicando este *virtual service*:
 
 ```bash
-kubectl apply -f samples/bookinfo/networking/virtual-service-reviews-v3.yaml
+kubectl apply -f samples/bookinfo/networking/virtual-service-reviews-v3.yaml -n bookinfo
 ```
 
 **Ejecuta los pasos de verificación al final de esta sección de *traffic shifting*. Ahora deberias ver solo *reviews-v3-***
@@ -394,11 +401,6 @@ En esta actividad, configurarás reglas de *circuit breaking* y posteriormente p
 
 #### Ejemplo:
 La aplicación *httpbin* sirve como el servicio de backend para esta actividad. Para interactuar con este servicio, crearás un cliente llamado *fortio*, una herramienta de prueba de carga. *Fortio* te permitirá controlar el número de conexiones, la concurrencia y los retrasos en las llamadas HTTP salientes. Utilizarás este cliente para "activar" las políticas de *circuit breaking* que configures en el `DestinationRule`.
-
-Habilita Istio sobre el namespace `default`: 
-```bash
-kubectl label namespace default istio-injection=enabled
-```
 
 Desplega el servicio de backend httpbin:
 
@@ -436,10 +438,10 @@ Inyecta el cliente con el *sidecar proxy* de Istio para que las interacciones de
 kubectl apply -f samples/httpbin/sample-client/fortio-deploy.yaml
 ```
 
-Inicia sesión en el *pod* del cliente y utiliza la herramienta *fortio* para hacer llamadas al servicio *httpbin*. Pasa `curl` como parámetro para indicar que solo deseas realizar una llamada:
+**Desde la terminal de VirtualBox**, inicia sesión en el *pod* del cliente y utiliza la herramienta *fortio* para hacer llamadas al servicio *httpbin*. Pasa `curl` como parámetro para indicar que solo deseas realizar una llamada:
 
 ```bash
-$ kubectl exec -it <fortio-pod-name> -c fortio -- /usr/bin/fortio curl http://httpbin:8000
+kubectl exec -it <fortio-pod-name> -c fortio -- /usr/bin/fortio curl http://httpbin:8000/get
 ```
 
 O puedes ejecutar estos comandos:
@@ -510,7 +512,7 @@ El *Traffic Mirroring*, también conocido como *shadowing*, es un concepto poder
 En esta actividad, primero forzarás que todo el tráfico vaya a la versión `v1` del servicio httbin. Luego, aplicarás una regla para espejar una porción del tráfico hacia la versión `v2` del mismo servicio de backend httbin.
 
 ### Limpieza del Entorno del Ejercicio Anterior
-Para garantizar que el entorno esté limpio antes de continuar, elimina los recursos creados en el ejercicio anterior con los siguientes comandos:
+**Desde la terminal de VirtualBox**, para garantizar que el entorno esté limpio antes de continuar, elimina los recursos creados en el ejercicio anterior con los siguientes comandos:
 
 ```bash
 kubectl delete destinationrule httpbin
@@ -604,7 +606,7 @@ EOF
 **Despliega un aplicacion `curl` que usarás para enviar solicitudes al servicio `httpbin`:**
 
 ```bash
-cat <<EOF | kubectl create -f -
+kubectl create -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -640,13 +642,14 @@ metadata:
   name: httpbin
 spec:
   hosts:
-- httpbin
+  - httpbin
   http:
   - route:
-- destination:
-    host: httpbin
-    subset: v1
-  weight: 100
+    - destination:
+        host: httpbin
+        subset: v1
+      weight: 100
+
 ---
 apiVersion: networking.istio.io/v1
 kind: DestinationRule
@@ -831,7 +834,7 @@ Ahora has creado una configuración de *virtual service* para el servicio `httpb
 
 El *gateways* especifica que solo se permiten las solicitudes que pasen a través de tu `httpbin-gateway`. Todas las demás solicitudes externas serán rechazadas con una respuesta 404.
 
-Cada Gateway está respaldado por un servicio de tipo *LoadBalancer*. **La IP del balanceador de carga externo y los puertos de este servicio se utilizan para acceder al Gateway**. En nuestro entorno de desarrollo, el servicio de tipo *LoadBalancer* ya existe, pero se ha convertido en tipo *ClusterIP* para funcionar en un entorno local. Este servicio se llama `istio-ingressgateway` y fue configurado al inicio de este laboratorio.
+Cada Ingress Gateway está respaldado por un servicio de tipo *LoadBalancer*. **La IP del balanceador de carga externo y los puertos de este servicio se utilizan para acceder al Gateway**. En nuestro entorno de desarrollo, el servicio de tipo *LoadBalancer* ya existe, pero se ha convertido en tipo *ClusterIP* para funcionar en un entorno local. Este servicio se llama `istio-ingressgateway` y fue configurado al inicio de este laboratorio (IstioOperator).
 
 Para acceder a nuestra aplicación en un entorno local, desde nuestro IDE debemos habilitar un *Port Forwarding* para el `istio-ingressgateway`:
 
@@ -842,7 +845,7 @@ kubectl port-forward svc/istio-ingressgateway -n istio-system 9000:80
 Ejecuta la solicitud HTTP con el *hostname* como *header*:
 
 ```bash
-curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:8000/status/200"
+curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:9000/status/200"
 ```
 
 Deberías recibir una respuesta HTTP desde la aplicación *httpbin*.
@@ -850,7 +853,7 @@ Deberías recibir una respuesta HTTP desde la aplicación *httpbin*.
 Ejecuta una segunda solicitud HTTP hacia una ruta que no está definida en el *VirtualService*:
 
 ```bash
-curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:8000/headers"
+curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:9000/headers"
 ```
 
 Deberías recibir una respuesta HTTP: **HTTP/1.1 404 Not Found**.
@@ -874,7 +877,7 @@ Aquí tienes los comandos `kubectl get` para verificar los recursos desplegados 
 
 1. **Obtener los Gateways Istio configurados:**
    ```bash
-   kubectl get gateway.networking.istio.io
+   kubectl get gateway
    ```
 
 2. **Obtener los servicios (Service) del namespace:**
@@ -896,8 +899,34 @@ Aquí tienes los comandos `kubectl get` para verificar los recursos desplegados 
 Para enviar múltiples solicitudes HTTP, puedes utilizar el siguiente comando:
 
 ```bash
-for i in {1..6}; do curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:8000/status/200"; done
+for i in {1..6}; do curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:9000/status/200"; done
 ```
+
+### BookInfo 
+Resulta intresante tambien analizare la configuracion de Bookinfo con su proprio IngressGateway deplegado en el namespace bookinfo.
+
+Verifica la presencia de un gateway en el namespace bookinfo
+```bash
+kubectl get gateway -n bookinfo
+```
+Analiza el contenido del gateway:
+```bash
+kubectl get gateway bookinfo-gateway -n bookinfo -o yaml
+```
+Expón la aplicación localmente. Desde el IDE, como Visual Studio Code (opcional) utilizando el Bookinfo gateway.
+```bash
+kubectl port-forward svc/istio-ingressgateway -n istio-system 8080:80
+```
+Te recomiendo no cerrar este *port forwarding*, ya que podría ser interesante analizarlo o utilizarlo en el futuro.
+
+Prueba la aplicación desde el navegador (opcional):
+   - [http://127.0.0.1:8080/productpage](http://localhost:8080/productpage)
+
+Deberias poder acceder a la aplicacion Bookinfo sn problemas.
+
+Analiza tambien la applicacion el la dashboard Kiali, deberias ver una configuracion como esta:
+
+![KIALI BOOKINFO GATEWAY](assets/images/bookinfo-gateway-kiali.PNG)
 
 ## 7.6 Egress Gateway
 
@@ -928,20 +957,6 @@ Configura la variable de entorno `SOURCE_POD` con el nombre de tu pod curl:
 
 ```bash
 export SOURCE_POD=$(kubectl get pod -l app=curl -o jsonpath={.items..metadata.name})
-```
-
-Habilita el registro de acceso (*access logging*) de Envoy si aún no está activado. Por ejemplo, usando `istioctl`:
-
-```bash
-istioctl install <flags-you-used-to-install-Istio> --set meshConfig.accessLogFile=/dev/stdout
-```
-
-Despliega el Egress Gateway de Istio. Verifica si está implementado:
-
-```bash
-istioctl install <flags-you-used-to-install-Istio> \
-   --set "components.egressGateways[0].name=istio-egressgateway" \
-   --set "components.egressGateways[0].enabled=true"
 ```
 
 Define un `ServiceEntry` para `edition.cnn.com`. Especifica el puerto 443 con protocolo TLS en el `ServiceEntry` y en el Gateway de Egress.
@@ -1039,7 +1054,6 @@ spec:
         host: edition.cnn.com
         port:
           number: 443
-        weight: 100
 EOF
 ```
 

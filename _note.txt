@@ -65,3 +65,6 @@ Deberías ver que Istio crea un servicio **LoadBalancer** para un gateway. Como 
 ```bash
 kubectl annotate gateway bookinfo-gateway networking.istio.io/service-type=ClusterIP --namespace=bookinfo
 ```
+
+
+istioctl install --set profile=empty -y --set meshConfig.accessLogFile=/dev/stdout
