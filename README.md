@@ -25,6 +25,7 @@ Este laboratorio práctico está diseñado para aprender a implementar estrategi
 
 Este repositorio incluye:
 
+- Una carpeta `istio-manifests` que contiene archivos *IstioOperator* para instalar los *Ingress* y *Egress Gateway* de Istio.
 - Una carpeta `scripts` con dos scripts que proporcionan soporte durante el laboratorio.
 - Un fichero `Vagrantfile` que permite automatizar el despliegue de tres VMs en VirtualBox.
 
@@ -75,24 +76,23 @@ Las VMs consisten en:
 ## Paso 3: Instalación de Istio
 
 1. **Descargar Istio**
-    ```bash
-    curl -L https://istio.io/downloadIstio | sh -
-    ```
+   ```bash
+   curl -L https://istio.io/downloadIstio | sh -
+   ```
 2. **Actualizar PATH env**
    ```bash
-    export PATH="$PATH:/home/vagrant/istio-1.24.0/bin"
-    ```
+   export PATH="$PATH:/home/vagrant/istio-1.24.0/bin"
+   ```
 
-2. **Pre-check de la Instalación de Istio**
-    ```bash
-    istioctl x precheck
-    ```
+3. **Pre-check de la Instalación de Istio**
+   ```bash
+   istioctl x precheck
+   ```
 
-3. **Instalar Istio Usando el Perfil Demo**
-    ```bash
-    cd istio-1.24.0 && \
-    istioctl install -f samples/bookinfo/demo-profile-no-gateways.yaml -y
-    ```
+4. **Instalar Istio Usando el Perfil Minimal**
+   ```bash
+   istioctl install --set profile=minimal -y 
+   ```
 
 ### Contenido del Directorio istio-1.24.0 Descargado
 
@@ -102,15 +102,22 @@ Este repositorio incluye:
 
 - La carpeta `/samples/bookinfo/networking`, que contiene todos los *manifests* para desplegar y gestionar el tráfico utilizando las APIs de Istio. Incluye la definición del Gateway de tipo `gateway.networking.istio.io` y varios VirtualService para configurar la gestión del tráfico.
 
-## Paso 4: Habilitar Istio en el Clúster
+## Paso 3: Habilitar Istio en el Clúster
 
-1. **Habilitar la Inyección de Istio en el Namespace bookinfo**
-    ```bash
-    kubectl create ns bookinfo && \
-    kubectl label namespace bookinfo istio-injection=enabled
-    ```
+1. **Habilitar la Inyección de Istio en el Namespace bookinfo e default**
+   ```bash
+   kubectl create ns bookinfo && \
+   kubectl label namespace bookinfo istio-injection=enabled && \
+   kubectl label namespace default istio-injection=enabled
+   ```
+2. **Verificar las etiquetas**
 
-## Paso 6: Desplegar la Aplicación BookInfo de Istio
+   Puedes comprobar si los namespaces están etiquetados correctamente con el siguiente comando:
+   ```bash
+   kubectl get namespace -L istio-injection
+   ```
+
+## Paso 4: Desplegar la Aplicación BookInfo de Istio
 
 1. Despliega la aplicación:
    ```bash
@@ -129,38 +136,14 @@ Este repositorio incluye:
    kubectl -n kube-system rollout restart deployment coredns
    ```
 
-## Paso 5: Instalar el API Gateway (Kubernetes)
-
-Los Kubernetes Gateway API CRDs (Custom Resource Definitions) son un conjunto de recursos personalizados que forman parte de la Gateway API en Kubernetes. Estos CRDs están diseñados para ofrecer un enfoque más flexible, extensible y controlado para gestionar el tráfico de red en Kubernetes, superando algunas de las limitaciones del recurso Ingress nativo. La Gateway API se enfoca en mejorar la administración de tráfico de entrada, como el enrutamiento, balanceo de carga, seguridad, y políticas de red avanzadas.
-
-**Proceso de instalación de un Ingress Gateway**
-
-La aplicación Bookinfo está desplegada, pero no es accesible desde el exterior. Para hacerla accesible, necesitas crear un *ingress gateway*, que mapea una ruta a un destino en el borde de tu *mesh*.
-
-```bash
-kubectl apply -f samples/bookinfo/gateway-api/bookinfo-gateway.yaml -n bookinfo
-```
-
-Este comando instala un Gateway de Kubernetes y un recurso HTTPRoute. Ejecuta el comando `kubectl get <tiporecurso> <nombrerecurso> -o yaml -n bookinfo` para ver la definición YAML de estos nuevos componentes de Kubernetes.
-
-Ejecuta el siguiente comando:
-
-```bash
-kubectl get svc -n bookinfo
-```
-
-Deberías ver que Istio crea un servicio **LoadBalancer** para un gateway. Como accederemos a este gateway mediante un túnel, no necesitamos un balanceador de carga. Cambiamos el tipo de servicio a ClusterIP añadiendo una anotación al gateway:
-
-```bash
-kubectl annotate gateway bookinfo-gateway networking.istio.io/service-type=ClusterIP --namespace=bookinfo
-```
-
-## Verificación de la aplicación con Port-Forwarding desde el IDE
+## Verificación de la aplicación BookInfo con Port-Forwarding desde el IDE (Visual Studio Code)
 
 1. Expón la aplicación localmente. Desde el IDE, como Visual Studio Code (opcional):
    ```bash
-   kubectl port-forward svc/bookinfo-gateway-istio -n bookinfo 8080:80
+   kubectl port-forward svc/productpage -n bookinfo 9080:9080
    ```
+   Te recomiendo no cerrar este *port forwarding*, ya que podría ser interesante analizarlo o utilizarlo en el futuro.
+
 2. Prueba la aplicación desde el navegador (opcional):
    - [http://127.0.0.1:9080/productpage](http://localhost:8080/productpage)
 
@@ -169,7 +152,7 @@ kubectl annotate gateway bookinfo-gateway networking.istio.io/service-type=Clust
    kubectl -n kube-system rollout restart deployment coredns
    ```
 
-## Instalar Kiali Istio Dashboard
+## Paso 5: Instalar Kiali Istio Dashboard
 
 Istio se integra con varias aplicaciones de telemetría que te ayudan a comprender la estructura de tu *service mesh*, mostrar su topología y analizar su estado de salud.
 Sigue las instrucciones a continuación para desplegar el dashboard de Kiali, junto con Prometheus, Grafana y Jaeger.
@@ -181,28 +164,53 @@ kubectl rollout status deployment/kiali -n istio-system
 ```
 2. Accede al dashboard de Kiali.
 
-Usando la herramienta `istioctl`,
+Usando la herramienta `istioctl` **(este comando no funciona desde VirtuslBox )**,
 
 ```bash
 istioctl dashboard kiali
 ```
-O ejecutando un port-forwarding del servicio Kiali.
+O ejecutando un port-forwarding del servicio Kiali, en tu IDE.
 
 ```bash
 kubectl port-forward svc/kiali -n istio-system 20001:20001
 ```
 
-En el menú de navegación izquierdo, selecciona *Graph* y, en el desplegable *Namespace*, selecciona *default*.
+Te recomiendo no cerrar este *port forwarding*, ya que podría ser interesante analizarlo o utilizarlo en el futuro.
+
+En el menú de navegación izquierdo, selecciona *Graph* y, en el desplegable *Namespace*, selecciona *bookinfo*.
 
 Para ver los datos en la Dashboard, debes enviar solicitudes a tu servicio. La cantidad de solicitudes depende de la tasa de muestreo de Istio y puede configurarse mediante la API de Telemetría. Con la tasa de muestreo predeterminada del 1%, necesitas enviar al menos 100 solicitudes antes de que el primer rastro sea visible. Para enviar 100 solicitudes al servicio `productpage`, utiliza el siguiente comando:
 
 ```bash
-for i in $(seq 1 100); do curl -s -o /dev/null "http://127.0.0.1:8080/productpage"; done
+for i in $(seq 1 100); do curl -s -o /dev/null "http://127.0.0.1:9080/productpage"; done
 ```
 
 Deberías ver la siguiente *service mesh* en tu dashboard de Kiali.
 
-![KIALI DASHBAORD](assets/images/kiali.PNG)
+![BOOKINFO KIALI DASHBAORD](assets/images/bookinfo-kiali.PNG)
+
+## Paso 6: Instalar Ingress y Egress Gateways Istio
+
+Para tener un entorno de *networking* más completo y eficiente, en este paso procederemos a instalar un *Ingress Gateway* y un *Egress Gateway* en nuestro clúster. Para instalar ambos componentes, necesitas copiar los dos *manifests* contenidos en la carpeta `istio-manifests` y aplicarlos con los siguientes comandos:
+
+Ingress Gateway
+```bash
+istioctl install -f ingress.yaml
+```
+
+Egress gateway
+```bash
+istioctl install -f egress.yaml
+```
+
+El servicio de *Ingress* de Istio se crea por defecto como un tipo *LoadBalancer*, pero para trabajar en un entorno local necesitamos cambiar el tipo del servicio a *ClusterIP*. Para hacer esto, edita la configuración utilizando el siguiente comando:
+
+```bash
+# Modifica el tipo de svc desde LoadBalancer a ClusterIP
+kubectl edit svc istio-ingressgateway -n istio-system
+``` 
+
+En el archivo de configuración que se abre, localiza el campo `type: LoadBalancer` y cámbialo a `type: ClusterIP`. Guarda y cierra el editor para aplicar los cambios.
 
 ## Paso 7: Traffic Management
 
@@ -220,7 +228,9 @@ Entre las capacidades clave de la gestión de tráfico en Istio están:
 - Ingress Gateway
 - Egress Gateway
 
-Para la siguiente parte del laboratorio, se ha decidido utilizar las `APIs de Istio`, por lo que emplearemos el Ingress Gateway de tipo `gateway.networking.istio.io`. Dado que ya hemos integrado Istio y confiamos en sus funcionalidades avanzadas para la gestión del tráfico, el Istio Gateway es, en general, la elección más adecuada. Dicho esto, se utilizarán los *manifests* de los VirtualService contenidos en el directorio `/samples/bookinfo/networking`.
+Para la siguiente parte del laboratorio, se ha decidido utilizar las `APIs de Istio`, por lo que emplearemos el Ingress y Egress Gateway de tipo `gateway.networking.istio.io`. Dado que ya hemos integrado Istio y confiamos en sus funcionalidades avanzadas para la gestión del tráfico, el Istio Gateway es, en general, la elección más adecuada. Dicho esto, se utilizarán los *manifests* de los VirtualService contenidos en el directorio `/samples/bookinfo/networking`.
+
+![KIALI DASHBAORD](assets/images/kiali.PNG)
 
 ## 7.1 Request Routing
 
@@ -419,7 +429,7 @@ EOF
 Inyecta el cliente con el *sidecar proxy* de Istio para que las interacciones de red sean gestionadas por Istio, despliega el servicio *fortio* con el siguiente comando:
 
 ```bash
-$ kubectl apply -f samples/httpbin/sample-client/fortio-deploy.yaml
+kubectl apply -f samples/httpbin/sample-client/fortio-deploy.yaml
 ```
 
 Inicia sesión en el *pod* del cliente y utiliza la herramienta *fortio* para hacer llamadas al servicio *httpbin*. Pasa `curl` como parámetro para indicar que solo deseas realizar una llamada:

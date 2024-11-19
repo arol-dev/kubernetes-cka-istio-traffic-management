@@ -1,0 +1,21 @@
+# Egress istio
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: egress
+spec:
+  profile: empty # Do not install CRDs or the control plane
+  components:
+    egressGateways:
+    - name: istio-egressgateway
+      namespace: istio-system
+      enabled: true
+      label:
+        # Set a unique label for the gateway. This is required to ensure Gateways
+        # can select this workload
+        istio: egressgateway
+  values:
+    gateways:
+      istio-egressgateway:
+        # Enable gateway injection
+        injectionTemplate: gateway
