@@ -165,7 +165,7 @@ kubectl rollout status deployment/kiali -n istio-system
 ```
 2. Accede al dashboard de Kiali.
 
-Usando la herramienta `istioctl` **(este comando no funciona desde VirtuslBox )**,
+Usando la herramienta `istioctl` **(este comando no funciona desde VirtuslBox)**,
 
 ```bash
 istioctl dashboard kiali
