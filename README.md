@@ -902,31 +902,44 @@ Para enviar múltiples solicitudes HTTP, puedes utilizar el siguiente comando:
 for i in {1..6}; do curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:9000/status/200"; done
 ```
 
-### BookInfo 
-Resulta intresante tambien analizare la configuracion de Bookinfo con su proprio IngressGateway deplegado en el namespace bookinfo.
+### BookInfo (Opcional)
 
-Verifica la presencia de un gateway en el namespace bookinfo
-```bash
-kubectl get gateway -n bookinfo
-```
-Analiza el contenido del gateway:
-```bash
-kubectl get gateway bookinfo-gateway -n bookinfo -o yaml
-```
-Expón la aplicación localmente. Desde el IDE, como Visual Studio Code (opcional) utilizando el Bookinfo gateway.
-```bash
-kubectl port-forward svc/istio-ingressgateway -n istio-system 8080:80
-```
-Te recomiendo no cerrar este *port forwarding*, ya que podría ser interesante analizarlo o utilizarlo en el futuro.
+Es interesante analizar la configuración de Bookinfo con su propio *IngressGateway* desplegado en el namespace `bookinfo`.
 
-Prueba la aplicación desde el navegador (opcional):
+1. **Verificar la presencia de un Gateway en el namespace `bookinfo`**  
+   Utiliza el siguiente comando para comprobar que el Gateway está configurado:
+
+   ```bash
+   kubectl get gateway -n bookinfo
+   ```
+
+2. **Analizar el contenido del Gateway**  
+   Inspecciona la configuración del Gateway con el siguiente comando:
+
+   ```bash
+   kubectl get gateway bookinfo-gateway -n bookinfo -o yaml
+   ```
+
+3. **Exponer la aplicación localmente**  
+   Desde el IDE, como Visual Studio Code (opcional), expón la aplicación utilizando el *bookinfo-gateway*:
+
+   ```bash
+   kubectl port-forward svc/istio-ingressgateway -n istio-system 8080:80
+   ```
+
+   **Nota:** Te recomiendo no cerrar este *port forwarding*, ya que podría ser interesante analizarlo o utilizarlo en el futuro.
+
+4. **Probar la aplicación desde el navegador (opcional)**  
+   Accede a la aplicación Bookinfo en tu navegador:
+
    - [http://127.0.0.1:8080/productpage](http://localhost:8080/productpage)
 
-Deberias poder acceder a la aplicacion Bookinfo sn problemas.
+   Deberías poder acceder a la aplicación Bookinfo sin problemas.
 
-Analiza tambien la applicacion el la dashboard Kiali, deberias ver una configuracion como esta:
+5. **Analizar la aplicación en el Dashboard de Kiali**  
+   Observa la configuración de la aplicación en el dashboard de Kiali. Deberías ver una estructura como la siguiente:
 
-![KIALI BOOKINFO GATEWAY](assets/images/bookinfo-gateway-kiali.PNG)
+   ![KIALI BOOKINFO GATEWAY](assets/images/bookinfo-gateway-kiali.PNG) 
 
 ## 7.6 Egress Gateway
 
