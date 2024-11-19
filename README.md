@@ -891,7 +891,7 @@ for i in {1..6}; do curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:8000
 El Ingress Gateway de Istio es un recurso que permite gestionar y controlar el tráfico entrante a un clúster de Kubernetes desde fuera del *service mesh*. A diferencia del recurso Ingress estándar de Kubernetes, el Gateway de Istio ofrece mayor flexibilidad y capacidades avanzadas, como la aplicación de políticas de enrutamiento, autenticación, monitoreo y balanceo de carga. Este recurso actúa como un punto de entrada que integra el tráfico externo con las aplicaciones distribuidas dentro del clúster, aprovechando las funciones de Istio para asegurar y optimizar las comunicaciones.
 
 #### Ejemplo:
-Esta tarea describe cómo configurar Istio para exponer un servicio fuera del *service mesh* utilizando un Gateway.
+En este laboratorio, configuramos un Egress Gateway en Istio para permitir y gestionar el tráfico saliente hacia un servicio externo (en este caso, edition.cnn.com). Esta configuración permite aplicar políticas de seguridad, control y observabilidad al tráfico externo.
 
 ### Limpieza del Entorno del Ejercicio Anterior
 Para garantizar que el entorno esté limpio antes de continuar, elimina los recursos creados en el ejercicio anterior con los siguientes comandos:
@@ -908,125 +908,152 @@ Despliega la aplicación de ejemplo *curl* para usarla como fuente de prueba par
 kubectl apply -f samples/curl/curl.yaml
 ```
 
-Creacion del Ingress Gateway: 
+**Configura y verifica el tráfico de salida utilizando Istio Egress Gateway**
+
+Configura la variable de entorno `SOURCE_POD` con el nombre de tu pod curl:
+
+```bash
+export SOURCE_POD=$(kubectl get pod -l app=curl -o jsonpath={.items..metadata.name})
+```
+
+Habilita el registro de acceso (*access logging*) de Envoy si aún no está activado. Por ejemplo, usando `istioctl`:
+
+```bash
+istioctl install <flags-you-used-to-install-Istio> --set meshConfig.accessLogFile=/dev/stdout
+```
+
+Despliega el Egress Gateway de Istio. Verifica si está implementado:
+
+```bash
+istioctl install <flags-you-used-to-install-Istio> \
+   --set "components.egressGateways[0].name=istio-egressgateway" \
+   --set "components.egressGateways[0].enabled=true"
+```
+
+Define un `ServiceEntry` para `edition.cnn.com`. Especifica el puerto 443 con protocolo TLS en el `ServiceEntry` y en el Gateway de Egress.
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: cnn
+spec:
+  hosts:
+  - edition.cnn.com
+  ports:
+  - number: 443
+    name: tls
+    protocol: TLS
+  resolution: DNS
+EOF
+```
+
+Verifica que el `ServiceEntry` se aplicó correctamente enviando una solicitud HTTP a `https://edition.cnn.com/politics`:
+
+```bash
+kubectl exec "$SOURCE_POD" -c curl -- curl -sSL -o /dev/null -D - https://edition.cnn.com/politics
+```
+
+Crea un Egress Gateway para `edition.cnn.com` y reglas de enrutamiento para dirigir el tráfico a través del Egress Gateway y hacia el servicio externo:
 
 ```bash
 kubectl apply -f - <<EOF
 apiVersion: networking.istio.io/v1
 kind: Gateway
 metadata:
-  name: httpbin-gateway
+  name: istio-egressgateway
 spec:
-  # The selector matches the ingress gateway pod labels.
-  # If you installed Istio using Helm following the standard documentation, this would be "istio=ingress"
   selector:
-    istio: ingressgateway
+    istio: egressgateway
   servers:
   - port:
-      number: 80
-      name: http
-      protocol: HTTP
+      number: 443
+      name: tls
+      protocol: TLS
     hosts:
-    - "httpbin.example.com"
+    - edition.cnn.com
+    tls:
+      mode: PASSTHROUGH
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: egressgateway-for-cnn
+spec:
+  host: istio-egressgateway.istio-system.svc.cluster.local
+  subsets:
+  - name: cnn
 EOF
 ```
-Aplica un VirtualService para definir las reglas de enrutamiento del tráfico de entrada:
+
+Configura las reglas de enrutamiento para dirigir el tráfico desde los sidecars al Egress Gateway y del Egress Gateway al servicio externo:
 
 ```bash
 kubectl apply -f - <<EOF
 apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:
-  name: httpbin
+  name: direct-cnn-through-egress-gateway
 spec:
   hosts:
-  - "httpbin.example.com"
+  - edition.cnn.com
   gateways:
-  - httpbin-gateway
-  http:
+  - mesh
+  - istio-egressgateway
+  tls:
   - match:
-    - uri:
-        prefix: /status
-    - uri:
-        prefix: /delay
+    - gateways:
+      - mesh
+      port: 443
+      sniHosts:
+      - edition.cnn.com
     route:
     - destination:
+        host: istio-egressgateway.istio-system.svc.cluster.local
+        subset: cnn
         port:
-          number: 8000
-        host: httpbin
+          number: 443
+  - match:
+    - gateways:
+      - istio-egressgateway
+      port: 443
+      sniHosts:
+      - edition.cnn.com
+    route:
+    - destination:
+        host: edition.cnn.com
+        port:
+          number: 443
+        weight: 100
 EOF
 ```
-Ahora has creado una configuración de *virtual service* para el servicio `httpbin`, que contiene dos reglas de enrutamiento que permiten el tráfico para las rutas `/status` y `/delay`.
 
-El *gateways* especifica que solo se permiten las solicitudes que pasen a través de tu `httpbin-gateway`. Todas las demás solicitudes externas serán rechazadas con una respuesta 404.
-
-Cada Gateway está respaldado por un servicio de tipo *LoadBalancer*. **La IP del balanceador de carga externo y los puertos de este servicio se utilizan para acceder al Gateway**. En nuestro entorno de desarrollo, el servicio de tipo *LoadBalancer* ya existe, pero se ha convertido en tipo *ClusterIP* para funcionar en un entorno local. Este servicio se llama `istio-ingressgateway` y fue configurado al inicio de este laboratorio.
-
-Para acceder a nuestra aplicación en un entorno local, desde nuestro IDE debemos habilitar un *Port Forwarding* para el `istio-ingressgateway`:
+Envía una solicitud HTTPS a `https://edition.cnn.com/politics`:
 
 ```bash
-kubectl port-forward svc/istio-ingressgateway -n istio-ingress 9000:80
+kubectl exec "$SOURCE_POD" -c curl -- curl -sSL -o /dev/null -D - https://edition.cnn.com/politics
 ```
 
-Ejecuta la solicitud HTTP con el *hostname* como *header*:
-
-```bash
-curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:8000/status/200"
-```
-
-Deberías recibir una respuesta HTTP desde la aplicación *httpbin*.
-
-Ejecuta una segunda solicitud HTTP hacia una ruta que no está definida en el *VirtualService*:
-
-```bash
-curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:8000/headers"
-```
-
-Deberías recibir una respuesta HTTP: **HTTP/1.1 404 Not Found**.
+El resultado debería ser el mismo que en el paso anterior.
 
 #### Explicación:
 
-![INGRESS GATEWAY HTTPBIN](assets/images/esquema_gateway_istio.png)
-
-Hemos desplegado una aplicación *httpbin* que escucha en el puerto 8000 y definido un servicio *httpbin* para servir los pods. Posteriormente, configuramos un *gateway* que habilita el *hostname* `httpbin.example.com` y el puerto 80 sobre el servicio `istio-ingressgateway`, que opera de manera similar a un *ingress-controller* de Kubernetes. Finalmente, mediante la definición de la *VirtualService*, establecimos las rutas y el servicio encargado de responder a las solicitudes HTTP que llegan al *gateway* `httpbin-gateway`.
-
-Para verificar que nuestra configuración era correcta, activamos un *port-forwarding* del servicio `istio-ingressgateway`. Esto se debe a que, para acceder al *Gateway*, normalmente se utilizan la IP del balanceador de carga externo y los puertos de este servicio. Sin embargo, en nuestro entorno, el servicio se ha modificado al tipo *ClusterIP* y se llama `istio-ingressgateway`.
-
-![INGRESS GATEWAY HTTPBIN](assets/images/ingress_gateway.PNG)
+Definimos un `ServiceEntry` para permitir el tráfico hacia el servicio externo, configuramos un Egress Gateway para enrutar el tráfico utilizando TLS y aplicamos un `VirtualService` para dirigir el tráfico a través del Gateway.  
 
 #### Resultado Esperado:
-Después de habilitar el *port forwarding*, la aplicación responde correctamente a las solicitudes realizadas sobre las rutas `/status` y `/delay`, definidas en el *VirtualService*. Por otro lado, responde con un error **404 Not Found** para las rutas no definidas en el *VirtualService*.
+
+Las solicitudes a `https://edition.cnn.com/politics` se realizaron con éxito. Los logs del Egress Gateway confirmaron que el tráfico saliente fue gestionado por Istio.  
 
 #### Verificación:
 
-Aquí tienes los comandos `kubectl get` para verificar los recursos desplegados en el clúster:
-
-1. **Obtener los Gateways Istio configurados:**
-   ```bash
-   kubectl get gateway.networking.istio.io
-   ```
-
-2. **Obtener los servicios (Service) del namespace:**
-   ```bash
-   kubectl get svc -n istio-ingress
-   kubectl get svc
-   ```
-
-3. **Obtener los pods desplegados por Httpbin:**
-   ```bash
-   kubectl get pods
-   ```
-
-4. **Obtener los VirtualServices configurados:**
-   ```bash
-   kubectl get virtualservice
-   ```
-
-Para enviar múltiples solicitudes HTTP, puedes utilizar el siguiente comando:
+Verifica el registro del pod del Egress Gateway para encontrar una línea correspondiente a nuestra solicitud. Si Istio está desplegado en el namespace `istio-system`, utiliza el siguiente comando para imprimir el registro:
 
 ```bash
-for i in {1..6}; do curl -s -I -HHost:httpbin.example.com "http://127.0.0.1:8000/status/200"; done
-```
+kubectl logs -l istio=egressgateway -c istio-proxy -n istio-system | tail
+``` 
+
+Esto mostrará las últimas líneas del registro del contenedor `istio-proxy` en el pod del Egress Gateway, donde deberías ver la solicitud realizada hacia `edition.cnn.com`.
 
 ## Troubleshooting Envoy Proxy Sidecar
 Para solucionar problemas, inspecciona los registros del contenedor *sidecar* en los pods con Istio inyectado utilizando los siguientes comandos:

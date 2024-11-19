@@ -1,5 +1,7 @@
 istioctl install --set profile=default -y #with gateway ingress
 
+injection default labels
+
 #Ingress istio
 apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
