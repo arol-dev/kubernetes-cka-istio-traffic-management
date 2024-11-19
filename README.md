@@ -189,36 +189,36 @@ Deberías ver la siguiente *service mesh* en tu dashboard de Kiali.
 
 ![BOOKINFO KIALI DASHBAORD](assets/images/bookinfo-kiali.PNG)
 
-## Paso 6: Instalación de Ingress Gateway y Egress Gateway en el Clúster
+## Paso 6: Instalación de Ingress y Egress Controller en el Clúster
 
-Para crear un entorno de *networking* más completo y eficiente, procederemos a instalar un *Ingress Gateway* y un *Egress Gateway* en nuestro clúster. Estos componentes se instalarán utilizando los *manifests* disponibles en la carpeta `istio-manifests`. Aplica los siguientes comandos para desplegarlos:
+Para crear un entorno de *networking* más completo y eficiente, procederemos a instalar dos *IstioOperator* que configurarán los *pods* de *Networking* (por ejemplo, `istio-ingressgateway`) que serán utilizados por los *Gateways* en nuestro clúster. Estos componentes de *IstioOperator* se instalarán utilizando los *manifests* disponibles en la carpeta `istio-manifests`. Copia estos *manifests* a tu clúster y aplica los siguientes comandos para desplegarlos:
 
-**Ingress Gateway**  
+**IstioOperator para Ingress Gateway**  
 ```bash
 istioctl install -f ingress.yaml
 ```
 
-**Egress Gateway**  
+**IstioOperator para Egress Gateway**  
 ```bash
 istioctl install -f egress.yaml
 ```
 
-El servicio de *Ingress* de Istio se crea, por defecto, como un tipo *LoadBalancer*. Sin embargo, para trabajar en un entorno local, necesitamos cambiar el tipo del servicio a *ClusterIP*. Para realizar este cambio, edita la configuración del servicio utilizando el siguiente comando:
+### Servicios Automáticos para Gateways
+
+Istio crea automáticamente dos *services* (uno para el *Ingress Gateway* y otro para el *Egress Gateway*) que proporcionan acceso real de *networking* a los *Gateways*. Por defecto, el servicio de *Ingress* de Istio se configura como tipo *LoadBalancer*. Sin embargo, para trabajar en un entorno local, es necesario cambiar el tipo del servicio a *ClusterIP*. Para realizar este cambio, edita la configuración del servicio utilizando el siguiente comando:
 
 ```bash
 # Modifica el tipo de svc desde LoadBalancer a ClusterIP
 kubectl edit svc istio-ingressgateway -n istio-system
 ```
 
-En el archivo de configuración que se abre, localiza la línea que contiene `type: LoadBalancer` y cámbiala a `type: ClusterIP`. Una vez realizados los cambios, guarda y cierra el editor para que estos se apliquen.
+En el archivo de configuración que se abre, localiza la línea que contiene `type: LoadBalancer` y cámbiala a `type: ClusterIP`. Una vez realizados los cambios, guarda y cierra el editor para aplicarlos.
 
-**Uso de Istio APIs para la Gestión Avanzada de Tráfico**
+En la siguiente parte del laboratorio, optaremos por utilizar las `APIs de Istio` para configurar y gestionar el tráfico de manera avanzada. Dado que ya hemos integrado Istio, confiamos en sus funcionalidades para definir rutas y políticas de tráfico. El *Istio Gateway* es la opción más adecuada para este propósito.
 
-En la siguiente parte del laboratorio, hemos optado por utilizar las `APIs de Istio`, por lo que hemos desplegado un *Ingress Gateway* y un *Egress Gateway* utilizando el tipo de recurso `gateway.networking.istio.io`. 
+Para completar la configuración, será necesario crear recursos de Istio como `Gateway` y `VirtualService`, que definirán las reglas de enrutamiento. Estos recursos se configuran utilizando los *manifests* disponibles en el directorio `/samples/bookinfo/networking` proporcionado por Istio.
 
-Dado que ya hemos integrado Istio y confiamos en sus funcionalidades avanzadas para la gestión del tráfico, el *Istio Gateway* es la elección más adecuada en este caso. Para completar la configuración, utilizaremos los *manifests* de los `VirtualService` y las `DestinationRules` que se encuentran en el directorio `/samples/bookinfo/networking` proporcionado por Istio.
-
-Esta configuración nos permitirá aprovechar al máximo las capacidades de Istio en la gestión de tráfico y la estabilidad del sistema.
+Los *Gateways* utilizarán el tipo de recurso `gateway.networking.istio.io`, mientras que las reglas de enrutamiento estarán definidas en los recursos `VirtualService` y `DestinationRules`.
 
 ## Paso 7: Traffic Management
 
@@ -276,7 +276,7 @@ Puedes probar el comportamiento de la gestión de tráfico ejecutando los siguie
 1. Realiza un *port forward* del gateway (opcional si ya tienes el *forwarding* habilitado):
 
    ```bash
-   kubectl port-forward svc/istio-ingressgateway -n istio-ingress 8080:80
+   kubectl port-forward svc/istio-ingressgateway -n istio-system 8080:80
    ```
 
 2. Ejecuta un script que llama 6 veces al servicio `productpage` y muestra la información sobre las `reviews`:
@@ -836,7 +836,7 @@ Cada Gateway está respaldado por un servicio de tipo *LoadBalancer*. **La IP de
 Para acceder a nuestra aplicación en un entorno local, desde nuestro IDE debemos habilitar un *Port Forwarding* para el `istio-ingressgateway`:
 
 ```bash
-kubectl port-forward svc/istio-ingressgateway -n istio-ingress 9000:80
+kubectl port-forward svc/istio-ingressgateway -n istio-system 9000:80
 ```
 
 Ejecuta la solicitud HTTP con el *hostname* como *header*:
@@ -879,7 +879,7 @@ Aquí tienes los comandos `kubectl get` para verificar los recursos desplegados 
 
 2. **Obtener los servicios (Service) del namespace:**
    ```bash
-   kubectl get svc -n istio-ingress
+   kubectl get svc -n istio-system
    kubectl get svc
    ```
 
